@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: uk8sconfig
+  namespace: kube-system
+data:
+  UCLOUD_ACCESS_PUBKEY: '<ucloud api pubkey>'
+  UCLOUD_ACCESS_PRIKEY: '<ucloud api prikey>'
+  UCLOUD_REGION_ID: '<ucloud region, cn-bj2, etc.>'
+  UCLOUD_PROJECT_ID: '<ucloud account project id, org-1hxch0, etc.>'
+  UCLOUD_VPC_ID: '<ucloud vpcid, unet-1034fs>'
+  UCLOUD_SUBNET_ID: '<ucloud subnet id, subnet-dedav1, etc.>'
+  UCLOUD_API_ENDPOINT: 'http://api.service.ucloud.cn'
+  UCLOUD_UK8S_CLUSTER_ID: 'ucloud uk8s cluster id, uk8s-cda114a, etc.'

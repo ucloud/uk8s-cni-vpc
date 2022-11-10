@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vip-controller
+  namespace: kube-system
+  labels:
+    app: "vip-controller"
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vip-controller
+  labels:
+    app: "vip-controller"
+rules:
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["list", "watch", "get"]
+- apiGroups: ["vpc.uk8s.ucloud.cn"]
+  resources: ["vpcipclaims"]
+  verbs: ["watch","get","update","list","delete"]  
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: vip-controller
+  labels:
+    app: "vip-controller"
+subjects:
+  - kind: ServiceAccount
+    name: vip-controller
+    namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: vip-controller
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vip-controller
+  namespace: kube-system
+  labels:
+    app: "vip-controller"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "vip-controller"
+  template:
+    metadata:
+      labels:
+         app: "vip-controller"
+    spec:
+      serviceAccount: vip-controller
+      hostNetwork: true
+      hostPID: true
+      priorityClassName: system-node-critical
+      containers:
+        - name: vip-controller
+          image: uhub.service.ucloud.cn/uk8s/vip-controller:22.04.1
+          args:
+            - "--static-ip-gc-interval=1h"
+          resources:
+            limits:
+              cpu: 200m 
+              memory: 512Mi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          securityContext:
+            privileged: true
+          imagePullPolicy: "Always"
+          envFrom:
+          - configMapRef:
+              name: uk8sconfig
+          volumeMounts:
+            - name: user-config
+              mountPath: /etc/uk8s/
+            - name: host-data
+              mountPath: /etc/kubernetes
+              readOnly: true
+      volumes:
+        - name: user-config
+          configMap:
+            name: uk8sconfig
+        - name: host-data
+          hostPath:
+            path: /etc/kubernetes 
+--- 
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vpcipclaims.vpc.uk8s.ucloud.cn
+spec:
+  group: vpc.uk8s.ucloud.cn
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                subnetId:
+                  type: string
+                vpcId:
+                  type: string 
+                ip:
+                  type: string 
+                mask:
+                  type: string 
+                gateway:
+                  type: string
+            status:
+              type: object 
+              properties:
+                attached: 
+                  type: boolean 
+                lastDetachtime:
+                  type: string
+                releaseTime: 
+                  type: string 
+                sandboxId: 
+                  type: string 
+                mac:
+                  type: string 
+                zone:
+                  type: string 
+  scope: Namespaced  
+  names:
+    plural: vpcipclaims
+    singular: vpcipclaim
+    kind: VpcIpClaim
+---

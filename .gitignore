@@ -1,0 +1,12 @@
+*.txt
+*.swp
+*.log
+cnivpc/cnivpc
+mock/*
+cni-vpc-ipamd
+.idea
+.vscode
+vendor/*
+code-generator
+bin
+.DS_Store
