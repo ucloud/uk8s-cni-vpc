@@ -1,5 +1,5 @@
 # The building args, they will be injected into binary file.
-CNI_VERSION="22.05.1"
+CNI_VERSION=0.0.1
 WORKDIR=$(shell pwd)
 PKG_VERSION_PATH="github.com/ucloud/uk8s-cni-vpc/pkg/version"
 GO_VERSION=$(shell go version)
@@ -28,7 +28,7 @@ DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/centos-go:1.19.2)
 
 .PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
-		fmt version clean generate-grpc \
+		check-fmt fmt version clean generate-grpc \
 		build build-cni build-ipamd build-vip-controller
 
 all: build
@@ -62,8 +62,8 @@ docker-deploy: docker-build
 # the host.
 docker-build-cni:
 	${DOCKER_CMD} build -t ${CNI_VPC_BUILD_IMAGE} -f dockerfiles/cnivpc-build/Dockerfile .
-	@mkdir -p bin/docker
-	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /cnivpc ./bin/docker/cnivpc
+	@mkdir -p bin
+	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /cnivpc ./bin/cnivpc
 ifdef NODE_IP
 	scp bin/docker/cnivpc root@${NODE_IP}:/opt/cni/bin/cnivpc
 endif
@@ -82,6 +82,9 @@ fmt:
 	  -type f \
 	  -name '*.go' \
 	  -print0 | sort -z | xargs -0 -- goimports $(or $(FORMAT_FLAGS),-w) | wc -l | bc)
+
+check-fmt:
+	@./scripts/check-fmt.sh
 
 version:
 	@echo ${CNI_VERSION}

@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    if: contains(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Login to UHub
+      uses: docker/login-action@v2
+      with:
+        registry: uhub.service.ucloud.cn
+        username: ${{ secrets.UHUB_USER }}
+        password: ${{ secrets.UHUB_PASSWORD }}
+
+    - name: Deploy image
+      run: make docker-deploy DOCKER_CMD="docker" DEPLOY="true"
+
+    - name: Build CNI
+      run: make docker-build-cni DOCKER_CMD="docker"
+
+    - name: Make asset
+      run: bash ./scripts/make-asset.sh
+
+    - name: Create release
+      uses: softprops/action-gh-release@v1
+      with:
+        draft: true
+        token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        files: ${{ env.ASSET_FILE }}
+

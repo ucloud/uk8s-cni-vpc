@@ -10,3 +10,4 @@ vendor/*
 code-generator
 bin
 .DS_Store
+out
