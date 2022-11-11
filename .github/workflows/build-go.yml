@@ -1,0 +1,32 @@
+name: Build Go binary
+
+on:
+  push:
+    branches:
+      - "main"
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - "main"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set up go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.19.2
+
+    - name: Install goimports
+      run: go install golang.org/x/tools/cmd/goimports@latest
+
+    - name: Check go format
+      run: base scripts/check-fmt.sh
+
+    - name: Build
+      run: make build
