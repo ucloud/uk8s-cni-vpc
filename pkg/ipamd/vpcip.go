@@ -58,7 +58,7 @@ type cooldownIPItem struct {
 
 type InnerAddPodNetworkRequest struct {
 	Req      *rpc.AddPodNetworkRequest
-	Reciever chan *InnerAddPodNetworkResponse
+	Receiver chan *InnerAddPodNetworkResponse
 }
 
 type InnerAddPodNetworkResponse struct {
@@ -68,7 +68,7 @@ type InnerAddPodNetworkResponse struct {
 
 type InnerDelPodNetworkRequest struct {
 	Req      *rpc.DelPodNetworkRequest
-	Reciever chan error
+	Receiver chan error
 }
 
 var chanAddPodIp = make(chan *InnerAddPodNetworkRequest, 0)
@@ -259,7 +259,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			}
 		case r := <-chanAddPodIp:
 			pNet, err := s.getPodIp(r.Req)
-			r.Reciever <- &InnerAddPodNetworkResponse{
+			r.Receiver <- &InnerAddPodNetworkResponse{
 				PodNetwork: pNet,
 				Err:        err,
 			}
@@ -267,7 +267,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			pNet := r.Req.GetPodNetwork()
 			if s.staticIpPodExists(pNet) {
 				// Nothing to do for static ip
-				r.Reciever <- nil
+				r.Receiver <- nil
 				continue
 			}
 			// After the Pod releases the IP, set a cooldown time for the IP, and put it back into
@@ -275,7 +275,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			// The cooldown time is to prevent the IP from being assigned to the next pod before the
 			// kubelet deleting the pod.
 			s.cooldownIP(pNet)
-			r.Reciever <- nil
+			r.Receiver <- nil
 
 		case <-cooldownTk:
 			// Recycle the cooldown IP to pool

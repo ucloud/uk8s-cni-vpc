@@ -198,7 +198,7 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	quit := make(chan os.Signal)
 	signal.Notify(quit, os.Interrupt, os.Kill, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
-	klog.Infof("Recieve signal %+v, will stop myself gracefully", sig)
+	klog.Infof("Receive signal %+v, will stop myself gracefully", sig)
 	chanStopLoop <- true
 	ipd.doFreeIpPool()
 	ipd.doFreeCooldown()

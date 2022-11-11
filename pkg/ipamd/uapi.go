@@ -519,7 +519,7 @@ func (s *ipamServer) uapiReleaseEIP(eipId string) error {
 }
 
 func (s *ipamServer) uapiBindEIPForUNI(eipId, resId string) error {
-	// Make sure eip is avaiable
+	// Make sure eip is available
 	eipSet, err := s.uapiDescribeEIP(eipId)
 	if err != nil {
 		return fmt.Errorf("cannot describe eip %s before bind it to %s, %v", eipId, resId, err)
