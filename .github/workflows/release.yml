@@ -13,26 +13,18 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v3
 
-    # - name: Login to UHub
-    #   uses: docker/login-action@v2
-    #   with:
-    #     registry: uhub.service.ucloud.cn
-    #     username: ${{ secrets.UHUB_USER }}
-    #     password: ${{ secrets.UHUB_PASSWORD }}
-    #
-    # - name: Deploy image
-    #   run: make docker-deploy DOCKER_CMD="docker" DEPLOY="true"
-    #
-    # - name: Build CNI
-    #   run: make docker-build-cni
-
-    - name: Set up go
-      uses: actions/setup-go@v3
+    - name: Login to UHub
+      uses: docker/login-action@v2
       with:
-        go-version: 1.19.2
-
-    - name: Build
-      run: make build-cni
+        registry: uhub.service.ucloud.cn
+        username: ${{ secrets.UHUB_USER }}
+        password: ${{ secrets.UHUB_PASSWORD }}
+    
+    - name: Deploy image
+      run: make docker-deploy DOCKER_CMD="docker" DEPLOY="true"
+    
+    - name: Build CNI
+      run: make docker-build-cni
 
     - name: Make asset
       run: bash ./scripts/make-asset.sh

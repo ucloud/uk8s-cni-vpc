@@ -62,7 +62,6 @@ docker-deploy: docker-build
 # the host.
 docker-build-cni:
 	${DOCKER_CMD} build -t ${CNI_VPC_BUILD_IMAGE} -f dockerfiles/cnivpc-build/Dockerfile .
-	@mkdir -p bin/docker
 	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /cnivpc ./bin/cnivpc
 ifdef NODE_IP
 	scp bin/docker/cnivpc root@${NODE_IP}:/opt/cni/bin/cnivpc
