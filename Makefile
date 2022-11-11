@@ -5,6 +5,7 @@ PKG_VERSION_PATH="github.com/ucloud/uk8s-cni-vpc/pkg/version"
 GO_VERSION=$(shell go version)
 BUILD_TIME=$(shell date +%F-%Z/%T)
 COMMIT_ID=$(shell git rev-parse HEAD)
+COMMIT_ID_SHORT=$(shell git rev-parse --short HEAD)
 LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
 
 # Go args, the cni-vpc only support Linux os.
@@ -15,7 +16,7 @@ export GOARCH=$(TARGETARCH)
 DOCKER_DEPLOY_BUCKET=uhub.service.ucloud.cn/uk8s
 DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
 
-DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),test)
+DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),build-$(COMMIT_ID_SHORT))
 DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
