@@ -19,12 +19,12 @@ jobs:
         registry: uhub.service.ucloud.cn
         username: ${{ secrets.UHUB_USER }}
         password: ${{ secrets.UHUB_PASSWORD }}
-    
+
     - name: Deploy image
       run: make docker-deploy DOCKER_CMD="docker" DEPLOY="true"
-    
+
     - name: Build CNI
-      run: make docker-build-cni
+      run: make docker-build-cni DOCKER_CMD="docker"
 
     - name: Make asset
       run: bash ./scripts/make-asset.sh
