@@ -9,8 +9,6 @@ if [ ! -f ./bin/cnivpc ]; then
 	exit 1
 fi
 
-cp LICENSE ./bin
-
 ASSET_FILE="uk8s-cni-vpc_${VERSION}.zip"
-zip -r ${ASSET_FILE} ./bin
+zip -r ${ASSET_FILE} ./bin LICENSE
 echo "ASSET_FILE=${ASSET_FILE}" >> $GITHUB_ENV
