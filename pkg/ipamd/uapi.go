@@ -244,6 +244,10 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 
 func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, error) {
 	uApi, err := uapi.NewApiClient()
+	if err != nil {
+		klog.Error("Failed to create UAPI client: %v", err)
+		return nil, err
+	}
 	client := uApi.VPCClient()
 	req := client.NewDescribeSecondaryIpRequest()
 
