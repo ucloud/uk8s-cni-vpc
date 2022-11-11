@@ -67,7 +67,7 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 		log.Errorf("Failed to get host veth link %v", err)
 		return err
 	}
-	cidr := ip+"/32"
+	cidr := ip + "/32"
 	_, dstcidr, err := net.ParseCIDR(cidr)
 	if err != nil {
 		log.Errorf("Failed to parse CIDR %s: %v", cidr, err)
