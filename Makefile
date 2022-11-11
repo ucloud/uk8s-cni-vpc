@@ -28,7 +28,7 @@ DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/centos-go:1.19.2)
 
 .PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
-		fmt version clean generate-grpc \
+		check-fmt fmt version clean generate-grpc \
 		build build-cni build-ipamd build-vip-controller
 
 all: build
@@ -82,6 +82,9 @@ fmt:
 	  -type f \
 	  -name '*.go' \
 	  -print0 | sort -z | xargs -0 -- goimports $(or $(FORMAT_FLAGS),-w) | wc -l | bc)
+
+check-fmt:
+	@./scripts/check-fmt.sh
 
 version:
 	@echo ${CNI_VERSION}
