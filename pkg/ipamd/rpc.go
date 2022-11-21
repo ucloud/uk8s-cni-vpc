@@ -81,7 +81,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 		recv := make(chan *InnerAddPodNetworkResponse, 0)
 		chanAddPodIp <- &InnerAddPodNetworkRequest{
 			Req:      req,
-			Reciever: recv,
+			Receiver: recv,
 		}
 		resp := <-recv
 		if resp.Err != nil {
@@ -140,7 +140,7 @@ func (s *ipamServer) DelPodNetwork(ctx context.Context, req *rpc.DelPodNetworkRe
 	recv := make(chan error, 0)
 	chanDelPodIp <- &InnerDelPodNetworkRequest{
 		Req:      req,
-		Reciever: recv,
+		Receiver: recv,
 	}
 	err := <-recv
 	if err == nil {

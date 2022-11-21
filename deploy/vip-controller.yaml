@@ -24,7 +24,7 @@ rules:
   verbs: ["list", "watch", "get"]
 - apiGroups: ["vpc.uk8s.ucloud.cn"]
   resources: ["vpcipclaims"]
-  verbs: ["watch","get","update","list","delete"]  
+  verbs: ["watch","get","update","list","delete"]
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -64,12 +64,12 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: vip-controller
-          image: uhub.service.ucloud.cn/uk8s/vip-controller:22.04.1
+          image: uhub.service.ucloud.cn/uk8s/vip-controller:0.1.0-rc1
           args:
             - "--static-ip-gc-interval=1h"
           resources:
             limits:
-              cpu: 200m 
+              cpu: 200m
               memory: 512Mi
             requests:
               cpu: 200m
@@ -92,8 +92,8 @@ spec:
             name: uk8sconfig
         - name: host-data
           hostPath:
-            path: /etc/kubernetes 
---- 
+            path: /etc/kubernetes
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -114,29 +114,29 @@ spec:
                 subnetId:
                   type: string
                 vpcId:
-                  type: string 
+                  type: string
                 ip:
-                  type: string 
+                  type: string
                 mask:
-                  type: string 
+                  type: string
                 gateway:
                   type: string
             status:
-              type: object 
+              type: object
               properties:
-                attached: 
-                  type: boolean 
+                attached:
+                  type: boolean
                 lastDetachtime:
                   type: string
-                releaseTime: 
-                  type: string 
-                sandboxId: 
-                  type: string 
+                releaseTime:
+                  type: string
+                sandboxId:
+                  type: string
                 mac:
-                  type: string 
+                  type: string
                 zone:
-                  type: string 
-  scope: Namespaced  
+                  type: string
+  scope: Namespaced
   names:
     plural: vpcipclaims
     singular: vpcipclaim

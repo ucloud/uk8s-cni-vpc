@@ -1,5 +1,5 @@
 # The building args, they will be injected into binary file.
-CNI_VERSION=0.0.1
+CNI_VERSION=0.1.0-rc1
 WORKDIR=$(shell pwd)
 PKG_VERSION_PATH="github.com/ucloud/uk8s-cni-vpc/pkg/version"
 GO_VERSION=$(shell go version)

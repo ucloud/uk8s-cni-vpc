@@ -153,6 +153,9 @@ func telemetryReport(rp *Report) error {
 		return err
 	}
 	req, err := http.NewRequest("POST", telemetryAPIEndpoint, bytes.NewBuffer(content))
+	if err != nil {
+		return err
+	}
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 	}

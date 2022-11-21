@@ -244,6 +244,10 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 
 func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, error) {
 	uApi, err := uapi.NewApiClient()
+	if err != nil {
+		klog.Error("Failed to create UAPI client: %v", err)
+		return nil, err
+	}
 	client := uApi.VPCClient()
 	req := client.NewDescribeSecondaryIpRequest()
 
@@ -515,7 +519,7 @@ func (s *ipamServer) uapiReleaseEIP(eipId string) error {
 }
 
 func (s *ipamServer) uapiBindEIPForUNI(eipId, resId string) error {
-	// Make sure eip is avaiable
+	// Make sure eip is available
 	eipSet, err := s.uapiDescribeEIP(eipId)
 	if err != nil {
 		return fmt.Errorf("cannot describe eip %s before bind it to %s, %v", eipId, resId, err)

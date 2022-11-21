@@ -295,7 +295,7 @@ func (s *ipamServer) releaseUNI(podUid, uniId string) error {
 }
 
 func findInterfaceOfUNI(uni *vpc.NetworkInterface, handler *netlink.Handle) (netlink.Link, error) {
-	links := []netlink.Link{}
+	var links []netlink.Link
 	var err error
 	if handler == nil {
 		// Use current network namespace
