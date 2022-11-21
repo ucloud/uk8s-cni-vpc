@@ -68,10 +68,10 @@ spec:
       hostPID: true
       containers:
         - name: cni-vpc-ipamd
-          image: uhub.service.ucloud.cn/wxyz/cni-vpc-ipamd:test
+          image: uhub.service.ucloud.cn/wxyz/cni-vpc-ipamd:0.1.0-rc1
           resources:
             limits:
-              cpu: 200m 
+              cpu: 200m
               memory: 512Mi
             requests:
               cpu: 200m
