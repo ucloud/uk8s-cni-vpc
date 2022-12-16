@@ -18,33 +18,19 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-if [ ! -f ../code-generator ]; then
-	git clone https://github.com/kubernetes/code-generator.git ../code-generator
+if [ ! -d code-generator ]; then
+	git clone https://github.com/kubernetes/code-generator.git code-generator
+	git -C code-generator checkout v0.21.3
 fi
 
-SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
-CODEGEN_PKG=${CODEGEN_PKG:-$(cd "${SCRIPT_ROOT}"; ls -d -1 ./vendor/k8s.io/code-generator 2>/dev/null || echo ../code-generator)}
-echo codegen $CODEGEN_PKG
+bash code-generator/generate-groups.sh "deepcopy,client,informer,lister" \
+  github.com/ucloud/uk8s-cni-vpc/generated  github.com/ucloud/uk8s-cni-vpc/apis \
+  "ipamd:v1beta1 vipcontroller:v1beta1" \
+  --output-base generated_tmp \
+  --go-header-file hack/boilerplate.go.txt
 
-# generate the code with:
-# --output-base    because this script should also be able to run inside the vendor dir of
-#                  k8s.io/kubernetes. The output-base is needed for the generators to output into the vendor dir
-#                  instead of the $GOPATH directly. For normal projects this can be dropped.
-echo "output $(dirname "${BASH_SOURCE[0]}")/../../.." 
-bash "${CODEGEN_PKG}"/generate-groups.sh "deepcopy,client,informer,lister" \
-  github.com/ucloud/uk8s-cni-vpc/pkg/generated  github.com/ucloud/uk8s-cni-vpc/pkg/apis \
-  vipcontroller:v1beta1 \
-  --output-base "$(dirname "${BASH_SOURCE[0]}")/../../.." \
-  --go-header-file "${SCRIPT_ROOT}"/hack/boilerplate.go.txt
+cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/generated ./
+cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/apis/ipamd/v1beta1/zz_generated.deepcopy.go ./apis/ipamd/v1beta1
+cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/apis/vipcontroller/v1beta1/zz_generated.deepcopy.go ./apis/vipcontroller/v1beta1
 
-cp -r $(dirname "${BASH_SOURCE[0]}")/../../../github.com/ucloud/uk8s-cni-vpc/pkg/generated/  ../pkg/
-
-
-rm -rf  ../code-generator
-
-# To use your own boilerplate text append:
-#   --go-header-file "${SCRIPT_ROOT}"/hack/custom-boilerplate.go.txt
-
-
-
-#  --output-base "$(dirname "${BASH_SOURCE[0]}")/../../.." \
+rm -rf generated_tmp

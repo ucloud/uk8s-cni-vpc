@@ -20,7 +20,7 @@ import (
 	"github.com/containernetworking/plugins/pkg/ns"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
 
 func setNodePortRange(podName, podNS, netNS, sandBoxId string, pNet *rpc.PodNetwork) error {

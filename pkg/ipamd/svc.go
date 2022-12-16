@@ -14,15 +14,17 @@
 package ipamd
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/generated/clientset/versioned/typed/vipcontroller/v1beta1"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
+	crdclientset "github.com/ucloud/uk8s-cni-vpc/generated/clientset/versioned"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/boltdb/bolt"
 	"github.com/vishvananda/netlink"
@@ -40,8 +42,8 @@ const (
 )
 
 type ipamServer struct {
-	k8s       *kubernetes.Clientset
-	vipclient *v1beta1.VipcontrollerV1beta1Client
+	kubeClient *kubernetes.Clientset
+	crdClient  *crdclientset.Clientset
 	// bolt db file handler
 	db *bolt.DB
 	// *rpc.PodNetwork
@@ -67,13 +69,25 @@ type ipamServer struct {
 	nodeIpAddr  *netlink.Addr
 
 	assignLock sync.RWMutex
+
+	// The tcp address to listen
+	tcpAddr string
 }
 
 func IpamdServer() error {
+	kubeClient, err := kubeclient.Get()
+	if err != nil {
+		return err
+	}
+	crdClient, err := kubeclient.GetCRD()
+	if err != nil {
+		return err
+	}
+
 	server := grpc.NewServer()
 	ipd := &ipamServer{
-		k8s:       getK8sClient(),
-		vipclient: getVipClient(),
+		kubeClient: kubeClient,
+		crdClient:  crdClient,
 
 		nodeName: os.Getenv("KUBE_NODE_NAME"),
 	}
@@ -130,7 +144,7 @@ func (s *ipamServer) uniEnabled(nodeName string) bool {
 
 func (s *ipamServer) initServer() {
 	// About k8s version
-	k8sVersion, err := s.k8s.DiscoveryClient.ServerVersion()
+	k8sVersion, err := s.kubeClient.DiscoveryClient.ServerVersion()
 	if err != nil {
 		klog.Fatalf("Cannot get k8s apiserver version, %v", err)
 	}
@@ -159,11 +173,12 @@ func (s *ipamServer) initServer() {
 	// Fetch node's master network device ip address
 	nodeIp, err := getNodeIPAddress(masterInterface)
 	if err != nil {
-		klog.Errorf("Cannot get node master network interface mac addr, %v", err)
-		s.nodeIpAddr = nil
+		klog.Fatalf("Cannot get node IP address, %v", err)
 	} else {
 		s.nodeIpAddr = nodeIp
 	}
+	ip := s.nodeIpAddr.IP.String()
+	s.tcpAddr = fmt.Sprintf("%s:6666", ip)
 
 	s.db, err = storage.NewDBFileHandler(storageFile)
 	if err != nil {

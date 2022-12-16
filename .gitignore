@@ -1,4 +1,3 @@
-*.txt
 *.swp
 *.log
 cnivpc/cnivpc
@@ -11,3 +10,4 @@ code-generator
 bin
 .DS_Store
 out
+tmo

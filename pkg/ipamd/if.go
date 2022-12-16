@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/j-keck/arping"

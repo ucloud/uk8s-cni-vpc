@@ -19,15 +19,19 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"reflect"
 	"time"
 
 	"github.com/j-keck/arping"
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
+
+	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/apis/ipamd/v1beta1"
 
 	v1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
@@ -81,7 +85,6 @@ func getReservedIPKey(pNet *rpc.PodNetwork) string {
 
 func (s *ipamServer) staticIpPodExists(pNet *rpc.PodNetwork) bool {
 	if _, err := s.getVpcipClaim(pNet.GetPodNS(), pNet.GetPodName()); err != nil {
-		klog.Warningf("%v/%v can not found, %v", pNet.GetPodNS(), pNet.GetPodName(), err)
 		return false
 	}
 	return true
@@ -233,30 +236,6 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 				}
 			}
 
-			size = s.pool.Len()
-			if size == 0 && !s.unschedulable {
-				// Even after pool watermark scheduling, the pool is still empty. It means that
-				// the upstream VPC server is out of IP, or we have problem communicating with
-				// VPC server.
-				// In either cases, the Pod should not be scheduled to this Node anymore. We should
-				// mark this node as unschedulable in k8s.
-				err := s.markNodeUnschedulable()
-				if err != nil {
-					klog.Errorf("failed to mark node %q as unschedulable: %v", s.nodeName, err)
-				} else {
-					klog.Infof("the node %q is out of ip, marked it as unschedulable", s.nodeName)
-				}
-			}
-			if size > 0 && s.unschedulable {
-				// The Node was marked as unschedulable, but now we have available IP(s), it is
-				// safe to mark it as schedulable in k8s again.
-				err := s.markNodeSchedulable()
-				if err != nil {
-					klog.Errorf("failed to mark node %q as schedulable: %v", s.nodeName, err)
-				} else {
-					klog.Infof("the node %q ip pool has been recovered, marked it as schedulable", s.nodeName)
-				}
-			}
 		case r := <-chanAddPodIp:
 			pNet, err := s.getPodIp(r.Req)
 			r.Receiver <- &InnerAddPodNetworkResponse{
@@ -285,7 +264,75 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			klog.Infof("Now stop vpc ip pool manager loop")
 			return
 		}
+
+		// Update the ipamd CR resource, save the latest watermark to the status.
+		err := s.updateStatus()
+		if err != nil {
+			klog.Errorf("failed to update ipamd status: %v", err)
+		}
 	}
+}
+
+func (s *ipamServer) updateStatus() error {
+	watermark := s.pool.Len()
+	status := ipamdv1beta1.IpamdStatus{
+		Current: watermark,
+
+		High: AvailablePodIPHighWatermark,
+		Low:  AvailablePodIPLowWatermark,
+	}
+
+	switch {
+	case watermark <= 0:
+		status.Status = ipamdv1beta1.StatusDry
+
+	case watermark < AvailablePodIPLowWatermark:
+		status.Status = ipamdv1beta1.StatusHungry
+
+	case watermark >= AvailablePodIPLowWatermark && watermark < AvailablePodIPHighWatermark:
+		status.Status = ipamdv1beta1.StatusNormal
+
+	default:
+		status.Status = ipamdv1beta1.StatusOverflow
+	}
+
+	ctx := context.Background()
+	ipamdInfo, err := s.crdClient.IpamdV1beta1().Ipamds("kube-system").Get(ctx, s.nodeName, metav1.GetOptions{})
+	switch {
+	case kerrors.IsNotFound(err):
+		ipamdInfo = &ipamdv1beta1.Ipamd{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: s.nodeName,
+			},
+			Spec: ipamdv1beta1.IpamdSpec{
+				Node: s.nodeName,
+				Addr: s.tcpAddr,
+			},
+			Status: status,
+		}
+		_, err = s.crdClient.IpamdV1beta1().Ipamds("kube-system").Create(ctx, ipamdInfo, metav1.CreateOptions{})
+		if err != nil {
+			return fmt.Errorf("faield to create ipamd resource: %v", err)
+		}
+		klog.Infof("create ipamd resource %q, status: %+v", s.nodeName, status)
+		return nil
+
+	case err != nil:
+		return fmt.Errorf("failed to get ipamd resource: %v", err)
+	}
+
+	if reflect.DeepEqual(ipamdInfo.Status, status) {
+		return nil
+	}
+
+	ipamdInfo.Status = status
+	_, err = s.crdClient.IpamdV1beta1().Ipamds("kube-system").Update(ctx, ipamdInfo, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update ipamd resource: %v", err)
+	}
+
+	klog.Infof("update ipamd resource %q, status: %+v", s.nodeName, status)
+	return nil
 }
 
 func (s *ipamServer) appendPool(size int) {
@@ -375,69 +422,6 @@ func (s *ipamServer) recycleCooldownIP() {
 		newSet = append(newSet, cdIP)
 	}
 	s.cooldownSet = newSet
-}
-
-func (s *ipamServer) markNodeUnschedulable() error {
-	node, err := s.getKubeNode(s.nodeName)
-	if err != nil {
-		return fmt.Errorf("failed to get node %q: %v", s.nodeName, err)
-	}
-
-	var found bool
-	for _, taint := range node.Spec.Taints {
-		if taint.Key == outOfIpTaintKey {
-			found = true
-			break
-		}
-	}
-	if found {
-		s.unschedulable = true
-		return nil
-	}
-
-	node.Spec.Taints = append(node.Spec.Taints, v1.Taint{
-		Key: outOfIpTaintKey,
-
-		// The Effect must be NoSchedule to prevent new Pod being scheduled to this node.
-		// And we cannot evict the existsing Pod(s). So the effect cannot be NoExecute.
-		Effect: v1.TaintEffectNoSchedule,
-	})
-	_, err = s.k8s.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update node %q: %v", s.nodeName, err)
-	}
-	s.unschedulable = true
-	return nil
-}
-
-func (s *ipamServer) markNodeSchedulable() error {
-	node, err := s.getKubeNode(s.nodeName)
-	if err != nil {
-		return fmt.Errorf("failed to get node %q: %v", s.nodeName, err)
-	}
-
-	var found bool
-	newTaints := make([]v1.Taint, 0)
-	for _, taint := range node.Spec.Taints {
-		if taint.Key == outOfIpTaintKey {
-			// We need to remove the out-of-ip taint
-			found = true
-			continue
-		}
-		newTaints = append(newTaints, taint)
-	}
-	if !found {
-		s.unschedulable = false
-		return nil
-	}
-
-	node.Spec.Taints = newTaints
-	_, err = s.k8s.CoreV1().Nodes().Update(context.Background(), node, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update node %q: %v", s.nodeName, err)
-	}
-	s.unschedulable = false
-	return nil
 }
 
 func (s *ipamServer) doFreeIpPool() {

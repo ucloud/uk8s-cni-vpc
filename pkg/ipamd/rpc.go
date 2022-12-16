@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

@@ -1,4 +1,4 @@
-FROM uhub.service.ucloud.cn/wxyz/centos-go:1.19.2 AS builder
+FROM uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.3 AS builder
 
 WORKDIR /go/src/cni-vpc-uk8s
 

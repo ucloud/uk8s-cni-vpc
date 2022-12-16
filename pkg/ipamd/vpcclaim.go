@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"time"
 
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/apis/vipcontroller/v1beta1"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
+	v1beta1 "github.com/ucloud/uk8s-cni-vpc/apis/vipcontroller/v1beta1"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	v1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -35,16 +35,16 @@ const (
 )
 
 func (s *ipamServer) createVpcIpClaim(vip *v1beta1.VpcIpClaim) (*v1beta1.VpcIpClaim, error) {
-	return s.vipclient.VpcIpClaims(vip.Namespace).Create(context.TODO(), vip, metav1.CreateOptions{})
+	return s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Create(context.TODO(), vip, metav1.CreateOptions{})
 }
 
 func (s *ipamServer) getVpcipClaim(podNS, podName string) (*v1beta1.VpcIpClaim, error) {
-	return s.vipclient.VpcIpClaims(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
+	return s.crdClient.VipcontrollerV1beta1().VpcIpClaims(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 }
 
 func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId string) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		vip, localErr := s.vipclient.VpcIpClaims(vip.Namespace).Get(context.TODO(), vip.Name, metav1.GetOptions{})
+		vip, localErr := s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Get(context.TODO(), vip.Name, metav1.GetOptions{})
 		if localErr != nil {
 			klog.Infof("cannot get latest vpcipclaim  %s/%s, %v", vip.Namespace, vip.Name, localErr)
 			return localErr
@@ -71,7 +71,7 @@ func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId s
 			klog.Warningf("Cannot get pod %s/%s, %v", vip.Name, vip.Namespace, err)
 		}
 
-		_, localErr = s.vipclient.VpcIpClaims(vip.Namespace).Update(context.TODO(), vip, metav1.UpdateOptions{})
+		_, localErr = s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Update(context.TODO(), vip, metav1.UpdateOptions{})
 		return localErr
 	})
 	if err != nil {
