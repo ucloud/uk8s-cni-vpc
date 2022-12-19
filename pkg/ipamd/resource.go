@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/deviceplugin"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
 	"k8s.io/klog/v2"

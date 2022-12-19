@@ -17,10 +17,10 @@ import (
 	"fmt"
 	"time"
 
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/apis/vipcontroller/v1beta1"
-	crdclientset "github.com/ucloud/uk8s-cni-vpc/pkg/generated/clientset/versioned"
-	crdinformers "github.com/ucloud/uk8s-cni-vpc/pkg/generated/informers/externalversions/vipcontroller/v1beta1"
-	crdlisters "github.com/ucloud/uk8s-cni-vpc/pkg/generated/listers/vipcontroller/v1beta1"
+	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
+	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
+	crdinformers "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/vipcontroller/v1beta1"
+	crdlisters "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/listers/vipcontroller/v1beta1"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"

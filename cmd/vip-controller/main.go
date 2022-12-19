@@ -11,22 +11,6 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-/*
-Copyright 2017 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package main
 
 import (
@@ -37,16 +21,14 @@ import (
 	"time"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/apis/vipcontroller/v1beta1"
-	crdclientset "github.com/ucloud/uk8s-cni-vpc/pkg/generated/clientset/versioned"
-	crdinformers "github.com/ucloud/uk8s-cni-vpc/pkg/generated/informers/externalversions"
+	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
+	crdinformers "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 )
 
@@ -87,12 +69,12 @@ func main() {
 	go reconcileDetachedVip()
 
 	// Set up sts controller
-	kubeClient, err := getKubeClient()
+	kubeClient, err := kubeclient.Get()
 	if err != nil {
 		klog.Fatalf("Failed to create kubernetes clientsets, %v", err)
 	}
 
-	vipClient, err := getVpcIpClient()
+	vipClient, err := kubeclient.GetCRD()
 	if err != nil {
 		klog.Fatalf("Failed to create crd vpcipclaim clientsets, %v", err)
 	}
@@ -130,7 +112,7 @@ func reconcileDetachedVip() {
 }
 
 func vipCheckAndClean() {
-	vipClient, err := getVpcIpClient()
+	vipClient, err := kubeclient.GetCRD()
 	if err != nil {
 		klog.Errorf("Cannot get clientset for crd vpcipclaim, %v", err)
 		return
@@ -148,7 +130,7 @@ func vipCheckAndClean() {
 			if release, err := time.ParseDuration(vpcip.Status.ReleaseTime); err == nil {
 				detachTime, _ := time.Parse("2006-01-02 15:04:05", vpcip.Status.LastDetachTime)
 				if detachTime.Add(release).Before(time.Now()) {
-					kubeClient, err := getKubeClient()
+					kubeClient, err := kubeclient.Get()
 					if err != nil {
 						klog.Errorf("Cannot get kube client to check pod, %v", err)
 					}
@@ -186,36 +168,4 @@ func releaseVPCIp(vpcip v1beta1.VpcIpClaim) error {
 		return nil
 	}
 	return err
-}
-
-func getKubeClient() (*kubernetes.Clientset, error) {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		klog.Errorf("Failed to generate kubernetes client config, %v", err)
-		return nil, err
-	}
-
-	k8sClient, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		klog.Errorf("Failed to generate VpcIpclaim client, %v", err)
-		return nil, err
-	}
-
-	return k8sClient, nil
-}
-
-func getVpcIpClient() (*crdclientset.Clientset, error) {
-	cfg, err := rest.InClusterConfig()
-	if err != nil {
-		klog.Errorf("Failed to generate kubernetes client config, %v", err)
-		return nil, err
-	}
-
-	vipClient, err := crdclientset.NewForConfig(cfg)
-	if err != nil {
-		klog.Errorf("Failed to generate VpcIpclaim client, %v", err)
-		return nil, err
-	}
-
-	return vipClient, nil
 }

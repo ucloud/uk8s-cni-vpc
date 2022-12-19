@@ -25,21 +25,25 @@ CNI_VPC_BUILD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-build:$(DOCKER_LABEL)
 
 DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 
-DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/centos-go:1.19.2)
+DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.4)
 
 .PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
 		check-fmt fmt version clean generate-grpc \
-		build build-cni build-ipamd build-vip-controller
+		build build-cni build-ipamd build-ipamctl build-vip-controller \
+		install-grpc generate-k8s generate-grpc
 
 all: build
 
-build: build-cni build-ipamd build-vip-controller
+build: build-cni build-ipamd build-ipamctl build-vip-controller
 
 build-cni:
 	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
 
 build-ipamd:
 	go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
+
+build-ipamctl:
+	go build ${LDFLAGS} -o ./bin/ipamctl ./cmd/ipamctl
 
 build-vip-controller:
 	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
@@ -56,10 +60,13 @@ docker-deploy: docker-build
 	@echo "Successfully pushed image: ${IPAMD_IMAGE}"
 	@echo "Successfully pushed image: ${VIP_CONTROLLER_IMAGE}"
 
-# NOTE: Due to some C lib reasons, the cni binary built by some Linux
-# distributions (suck as ArchLinux) cannot run in CentOS, so it is
-# necessary to build the cni binary from docker and copy the artifact to
-# the host.
+# Build cnivpc binary in image, so that the glibc can match the production
+# environment.
+# If you build cnivpc binary in the latest Linux distribution (Such as Arch),
+# the binary might not be able to run in UK8S machine because the glibc version
+# in UK8S machine is very old.
+# we should use the image "uhub.service.ucloud.cn/wxyz/cni-vpc-base", it is based
+# on centos 7 (same as production), and glibc version is properly.
 docker-build-cni:
 	${DOCKER_CMD} build -t ${CNI_VPC_BUILD_IMAGE} -f dockerfiles/cnivpc-build/Dockerfile .
 	@mkdir -p bin
@@ -69,7 +76,7 @@ ifdef NODE_IP
 endif
 
 docker-base-image:
-	${DOCKER_CMD} build -t ${DOCKER_BASE_IMAGE} -f dockerfiles/centos-go/Dockerfile .
+	${DOCKER_CMD} build -t ${DOCKER_BASE_IMAGE} -f dockerfiles/base/Dockerfile .
 	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
 
 deploy-docker-base-image: docker-base-image
@@ -92,7 +99,13 @@ version:
 clean:
 	@rm -rf ./bin
 
+install-grpc:
+	@go install github.com/golang/protobuf/protoc-gen-go@latest
+
 generate-grpc:
 	@command -v protoc >/dev/null || { echo "ERROR: protoc not installed"; exit 1; }
 	@command -v protoc-gen-go >/dev/null || { echo "ERROR: protoc-gen-go not installed"; exit 1; }
-	@protoc --go_out=plugins=grpc:./pkg/rpc ./pkg/rpc/ipamd.proto
+	@protoc --go_out=plugins=grpc:./rpc ./rpc/ipamd.proto
+
+generate-k8s:
+	@bash hack/update-codegen.sh
