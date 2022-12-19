@@ -203,25 +203,14 @@ func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*r
 			Code: rpc.CNIErrorCode_CNIMissingParameters,
 		}, status.Error(codes.InvalidArgument, "missing MacAddr")
 	}
-	recv := make(chan *rpc.PodNetwork)
-	errChan := make(chan error)
-	chanBorrowIP <- &InnerBorrowIPRequest{
-		Req: req,
-
-		Receiver: recv,
-		Err:      errChan,
-	}
-
-	select {
-	case err := <-errChan:
+	ip, err := s.lendIP(req.MacAddr)
+	if err != nil {
 		return &rpc.BorrowIPResponse{
 			Code: rpc.CNIErrorCode_CNIBorrowIPFailure,
 		}, status.Error(codes.Internal, fmt.Sprintf("failed to borrow ip: %v", err))
-
-	case ip := <-recv:
-		return &rpc.BorrowIPResponse{
-			Code: rpc.CNIErrorCode_CNISuccess,
-			IP:   ip,
-		}, nil
 	}
+	return &rpc.BorrowIPResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
+		IP:   ip,
+	}, nil
 }

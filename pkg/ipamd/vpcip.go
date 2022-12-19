@@ -86,7 +86,6 @@ type InnerBorrowIPRequest struct {
 var (
 	chanAddPodIP = make(chan *InnerAddPodNetworkRequest, 0)
 	chanDelPodIP = make(chan *InnerDelPodNetworkRequest, 0)
-	chanBorrowIP = make(chan *InnerBorrowIPRequest, 0)
 	chanStopLoop = make(chan bool, 0)
 )
 
@@ -178,7 +177,7 @@ func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 				// MAC address, see:
 				//   https://docs.ucloud.cn/api/vpc2.0-api/move_secondary_ip_mac
 				klog.Error("out of ip in VPC, try to borrow one from other ipamd")
-				pn, err := s.borrowIPFromOthers()
+				pn, err := s.borrowIP()
 				if err != nil {
 					return nil, fmt.Errorf("vpc out of ip, and failed to borrow from others: %v", err)
 				}
@@ -280,14 +279,6 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			// kubelet deleting the pod.
 			s.cooldownIP(pNet)
 			r.Receiver <- nil
-
-		case r := <-chanBorrowIP:
-			secondaryIP, err := s.doBorrowIP(r.Req.MacAddr)
-			if err != nil {
-				r.Err <- err
-				continue
-			}
-			r.Receiver <- secondaryIP
 
 		case <-cooldownTk:
 			// Recycle the cooldown IP to pool
@@ -462,7 +453,7 @@ func (s *ipamServer) recycleCooldownIP() {
 	s.cooldownSet = newSet
 }
 
-func (s *ipamServer) borrowIPFromOthers() (*rpc.PodNetwork, error) {
+func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 	ctx := context.Background()
 	val, err := s.crdClient.IpamdV1beta1().Ipamds("kube-system").List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -507,7 +498,7 @@ func (s *ipamServer) borrowIPFromOthers() (*rpc.PodNetwork, error) {
 			MacAddr: s.hostMacAddr,
 		})
 		if err != nil {
-			klog.Error("failed to borrow from %q: %v", ipamd.Name, err)
+			klog.Errorf("failed to borrow from %q: %v", ipamd.Name, err)
 			continue
 		}
 		if resp.IP == nil {
@@ -521,9 +512,9 @@ func (s *ipamServer) borrowIPFromOthers() (*rpc.PodNetwork, error) {
 	return nil, errors.New("failed to borrow ip from other ipamd")
 }
 
-func (s *ipamServer) doBorrowIP(newMac string) (*rpc.PodNetwork, error) {
+func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
 	if s.pool.Len() <= 1 {
-		return nil, fmt.Errorf("no free ip to borrow, size %d", s.pool.Len())
+		return nil, fmt.Errorf("no free ip to lend, size %d", s.pool.Len())
 	}
 	val, err := s.pool.Pop()
 	if err != nil {
