@@ -42,7 +42,11 @@ const (
 	instanceTypeUDocker = "UDocker"
 	instanceTypeUDHost  = "UDHost"
 	instanceTypeUNI     = "UNI"
+
+	UAPIErrorSubnetNotEnough = 57000
 )
+
+var ErrOutOfIP = errors.New("vpc out of ip")
 
 var payModeMap map[string]string = map[string]string{
 	"traffic":        "Traffic",
@@ -172,7 +176,7 @@ func getObjectIDforSecondaryIp() (string, error) {
 	return instanceId, nil
 }
 
-func (s *ipamServer) uapiAllocateSecondaryIp(number int) (ips []*vpc.IpInfo, err error) {
+func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err error) {
 	uApi, err := uapi.NewApiClient()
 	if err != nil {
 		return nil, err
@@ -191,6 +195,9 @@ func (s *ipamServer) uapiAllocateSecondaryIp(number int) (ips []*vpc.IpInfo, err
 	for i := 0; i < number; i++ {
 		resp, err := uApi.VPCClient().AllocateSecondaryIp(req)
 		if err != nil {
+			if resp != nil && resp.GetRetCode() == UAPIErrorSubnetNotEnough {
+				return ips, ErrOutOfIP
+			}
 			klog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
 			continue
 		}

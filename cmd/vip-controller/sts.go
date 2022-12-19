@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/apis/vipcontroller/v1beta1"
-	crdclientset "github.com/ucloud/uk8s-cni-vpc/pkg/generated/clientset/versioned"
+	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
+	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"

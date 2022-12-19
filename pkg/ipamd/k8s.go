@@ -20,15 +20,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
-	v1beta1 "github.com/ucloud/uk8s-cni-vpc/pkg/generated/clientset/versioned/typed/vipcontroller/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 )
@@ -69,7 +66,7 @@ type EIPCfg struct {
 
 func (s *ipamServer) setPodAnnotation(pod *v1.Pod, pairs map[string]string) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		pod, localErr := s.k8s.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		pod, localErr := s.kubeClient.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
 		if localErr != nil {
 			return localErr
 		}
@@ -82,7 +79,7 @@ func (s *ipamServer) setPodAnnotation(pod *v1.Pod, pairs map[string]string) erro
 		}
 		// This action may overwrite previous pairs
 		pod.Annotations = annotations
-		_, localErr = s.k8s.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
+		_, localErr = s.kubeClient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
 		return localErr
 	})
 	if err != nil {
@@ -97,7 +94,7 @@ func (s *ipamServer) getLocalPods() (*v1.PodList, error) {
 		FieldSelector:   fields.OneTermEqualSelector("spec.nodeName", os.Getenv("KUBE_NODE_NAME")).String(),
 		ResourceVersion: "0",
 	}
-	list, err := s.k8s.CoreV1().Pods(v1.NamespaceAll).List(context.TODO(), options)
+	list, err := s.kubeClient.CoreV1().Pods(v1.NamespaceAll).List(context.TODO(), options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pods on %s from apiserver", s.nodeName)
 	}
@@ -121,7 +118,7 @@ func (s *ipamServer) getKubeNodeLabel(nodeName, key string) (string, error) {
 }
 
 func (s *ipamServer) getKubeNode(nodeName string) (*v1.Node, error) {
-	node, err := s.k8s.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+	node, err := s.kubeClient.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +126,7 @@ func (s *ipamServer) getKubeNode(nodeName string) (*v1.Node, error) {
 }
 
 func (s *ipamServer) getPod(podName, podNS string) (*v1.Pod, error) {
-	pod, err := s.k8s.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
+	pod, err := s.kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
 		klog.Errorf("Failed to get pod %s/%s, %v", podName, podNS, err)
 		return nil, err
@@ -187,36 +184,6 @@ func (s *ipamServer) setAnnotationForCalicoPolicy(pod *v1.Pod, network *rpc.PodN
 		return err
 	}
 	return nil
-}
-
-func getK8sClient() *kubernetes.Clientset {
-	// Generate in-cluster config from text
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		klog.Fatalf("Failed to generate kubernetes client config", err)
-	}
-
-	// Create the clientset
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		klog.Fatalf("Cannot setup kube client connection to kube apiserver, %v", err)
-	}
-	return clientset
-}
-
-func getVipClient() *v1beta1.VipcontrollerV1beta1Client {
-	// Generate in-cluster config from text
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		klog.Fatalf("Failed to generate kubernetes client config", err)
-	}
-
-	// Create the clientset
-	clientset, err := v1beta1.NewForConfig(config)
-	if err != nil {
-		klog.Fatalf("Cannot setup kube client connection to kube apiserver, %v", err)
-	}
-	return clientset
 }
 
 func (s *ipamServer) podEnableStaticIP(podName, podNS string) (bool, *v1.Pod, error) {

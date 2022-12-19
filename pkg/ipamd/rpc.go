@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -79,7 +79,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 	} else {
 		// Send InnerAddPodNetworkRequest to ipPoolWatermarkManager by golang channel
 		recv := make(chan *InnerAddPodNetworkResponse, 0)
-		chanAddPodIp <- &InnerAddPodNetworkRequest{
+		chanAddPodIP <- &InnerAddPodNetworkRequest{
 			Req:      req,
 			Receiver: recv,
 		}
@@ -138,7 +138,7 @@ func (s *ipamServer) DelPodNetwork(ctx context.Context, req *rpc.DelPodNetworkRe
 
 	// Send InnerDelPodNetworkRequest to ipPoolWatermarkManager by golang channel
 	recv := make(chan error, 0)
-	chanDelPodIp <- &InnerDelPodNetworkRequest{
+	chanDelPodIP <- &InnerDelPodNetworkRequest{
 		Req:      req,
 		Receiver: recv,
 	}
@@ -195,4 +195,22 @@ func (s *ipamServer) GetPodNetworkRecord(ctx context.Context, req *rpc.GetPodNet
 			Code: rpc.CNIErrorCode_CNIReadDBError,
 		}, status.Error(codes.Internal, fmt.Sprintf("failed to read pod network from db: %v", err))
 	}
+}
+
+func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*rpc.BorrowIPResponse, error) {
+	if req.MacAddr == "" {
+		return &rpc.BorrowIPResponse{
+			Code: rpc.CNIErrorCode_CNIMissingParameters,
+		}, status.Error(codes.InvalidArgument, "missing MacAddr")
+	}
+	ip, err := s.lendIP(req.MacAddr)
+	if err != nil {
+		return &rpc.BorrowIPResponse{
+			Code: rpc.CNIErrorCode_CNIBorrowIPFailure,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to borrow ip: %v", err))
+	}
+	return &rpc.BorrowIPResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
+		IP:   ip,
+	}, nil
 }

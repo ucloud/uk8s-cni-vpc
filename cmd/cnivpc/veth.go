@@ -22,7 +22,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/rpc"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/plugins/pkg/ip"
