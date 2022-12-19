@@ -21,8 +21,8 @@ RUN yum -y install devtoolset-7-gcc*
 SHELL [ "/usr/bin/scl", "enable", "devtoolset-7"]
 RUN gcc --version
 
-RUN wget https://dl.google.com/go/go1.19.3.linux-amd64.tar.gz
-RUN tar -C /usr/local -xzf go1.19.3.linux-amd64.tar.gz
+RUN wget https://dl.google.com/go/go1.19.4.linux-amd64.tar.gz
+RUN tar -C /usr/local -xzf go1.19.4.linux-amd64.tar.gz
 ENV PATH $PATH:/usr/local/go/bin
 
 # Configure build with Go modules

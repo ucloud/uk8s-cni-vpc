@@ -39,6 +39,7 @@ const (
 	UPHostMasterInterface = "net1"
 	CNIVpcDbName          = "cni-vpc-network"
 	CNIVPCIpPoolDBName    = "cni-vpc-ip-pool"
+	DefaultListenTCPPort  = 7312
 )
 
 type ipamServer struct {
@@ -101,11 +102,6 @@ func IpamdServer() error {
 	if pathExist(IpamdServiceSocket) {
 		os.Remove(IpamdServiceSocket)
 	}
-	listener, err := net.Listen("unix", IpamdServiceSocket)
-	klog.Flush()
-	if err != nil {
-		klog.Fatal(err)
-	}
 
 	go ipd.ipPoolWatermarkManager()
 	go ipd.reconcile()
@@ -114,14 +110,38 @@ func IpamdServer() error {
 	// Type O/OS doesn't support uni, no need to run device plugin.
 	if ipd.uniEnabled(os.Getenv("KUBE_NODE_NAME")) {
 		go func() {
-			err := startDevicePlugin()
+			err = startDevicePlugin()
 			if err != nil {
 				klog.Fatalf("Cannot start device plugin for UNI: %v", err)
 			}
 		}()
 	}
 
-	return server.Serve(listener)
+	socketListenr, err := net.Listen("unix", IpamdServiceSocket)
+	klog.Flush()
+	if err != nil {
+		klog.Fatalf("listen socket: %v", err)
+	}
+
+	tcpListener, err := net.Listen("tcp", ipd.tcpAddr)
+	if err != nil {
+		klog.Fatal("listen tcp: %v", err)
+	}
+
+	errChan := make(chan error)
+	go func() {
+		klog.Infof("Start to serve socket: %s", IpamdServiceSocket)
+		err = server.Serve(socketListenr)
+		errChan <- err
+	}()
+	go func() {
+		klog.Infof("Start to serve tcp: %s", ipd.tcpAddr)
+		err = server.Serve(tcpListener)
+		errChan <- err
+	}()
+
+	err = <-errChan
+	return fmt.Errorf("failed to server: %v", err)
 }
 
 func (s *ipamServer) uniEnabled(nodeName string) bool {
@@ -177,8 +197,12 @@ func (s *ipamServer) initServer() {
 	} else {
 		s.nodeIpAddr = nodeIp
 	}
+
 	ip := s.nodeIpAddr.IP.String()
-	s.tcpAddr = fmt.Sprintf("%s:6666", ip)
+	s.tcpAddr = os.Getenv("LISTEN_TCP_ADDR")
+	if s.tcpAddr == "" {
+		s.tcpAddr = fmt.Sprintf("%s:%d", ip, DefaultListenTCPPort)
+	}
 
 	s.db, err = storage.NewDBFileHandler(storageFile)
 	if err != nil {

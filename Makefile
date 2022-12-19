@@ -25,7 +25,7 @@ CNI_VPC_BUILD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-build:$(DOCKER_LABEL)
 
 DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 
-DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.3)
+DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.4)
 
 .PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
 		check-fmt fmt version clean generate-grpc \

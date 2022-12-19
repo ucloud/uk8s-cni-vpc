@@ -20,9 +20,11 @@ import (
 	"fmt"
 	"net"
 	"reflect"
+	"sort"
 	"time"
 
 	"github.com/j-keck/arping"
+	"google.golang.org/grpc"
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
@@ -75,9 +77,18 @@ type InnerDelPodNetworkRequest struct {
 	Receiver chan error
 }
 
-var chanAddPodIp = make(chan *InnerAddPodNetworkRequest, 0)
-var chanDelPodIp = make(chan *InnerDelPodNetworkRequest, 0)
-var chanStopLoop = make(chan bool, 0)
+type InnerBorrowIPRequest struct {
+	Req      *rpc.BorrowIPRequest
+	Receiver chan *rpc.PodNetwork
+	Err      chan error
+}
+
+var (
+	chanAddPodIP = make(chan *InnerAddPodNetworkRequest, 0)
+	chanDelPodIP = make(chan *InnerDelPodNetworkRequest, 0)
+	chanBorrowIP = make(chan *InnerBorrowIPRequest, 0)
+	chanStopLoop = make(chan bool, 0)
+)
 
 func getReservedIPKey(pNet *rpc.PodNetwork) string {
 	return pNet.VPCID + "-" + pNet.VPCIP
@@ -158,8 +169,21 @@ func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 	val, err := s.pool.Pop()
 	if err == storage.ErrNotFound {
 		// The pool is empty, try to assign a new one from VPC backend
-		vpcIps, err := s.uapiAllocateSecondaryIp(1)
+		vpcIps, err := s.uapiAllocateSecondaryIP(1)
 		if err != nil {
+			if err == ErrOutOfIP {
+				// Borrowing: When the vpc has no ip, other ipamd pools may still
+				// have surplus, so we try to choose one of them to borrow.
+				// The borrowed ip will call the vpc's MoveSecondaryIPMac to migrate
+				// MAC address, see:
+				//   https://docs.ucloud.cn/api/vpc2.0-api/move_secondary_ip_mac
+				klog.Error("out of ip in VPC, try to borrow one from other ipamd")
+				pn, err := s.borrowIPFromOthers()
+				if err != nil {
+					return nil, fmt.Errorf("vpc out of ip, and failed to borrow from others: %v", err)
+				}
+				return pn, nil
+			}
 			klog.Errorf("failed to assign new ip for pod: %v", err)
 			return nil, err
 		}
@@ -236,13 +260,14 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 				}
 			}
 
-		case r := <-chanAddPodIp:
+		case r := <-chanAddPodIP:
 			pNet, err := s.getPodIp(r.Req)
 			r.Receiver <- &InnerAddPodNetworkResponse{
 				PodNetwork: pNet,
 				Err:        err,
 			}
-		case r := <-chanDelPodIp:
+
+		case r := <-chanDelPodIP:
 			pNet := r.Req.GetPodNetwork()
 			if s.staticIpPodExists(pNet) {
 				// Nothing to do for static ip
@@ -255,6 +280,14 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 			// kubelet deleting the pod.
 			s.cooldownIP(pNet)
 			r.Receiver <- nil
+
+		case r := <-chanBorrowIP:
+			secondaryIP, err := s.doBorrowIP(r.Req.MacAddr)
+			if err != nil {
+				r.Err <- err
+				continue
+			}
+			r.Receiver <- secondaryIP
 
 		case <-cooldownTk:
 			// Recycle the cooldown IP to pool
@@ -342,10 +375,15 @@ func (s *ipamServer) appendPool(size int) {
 	}
 	klog.Infof("pool size %d, below low watermark %d, try to assign %d ip",
 		size, AvailablePodIPLowWatermark, toAssign)
-	vpcIps, err := s.uapiAllocateSecondaryIp(toAssign)
-	if err != nil {
+	vpcIps, err := s.uapiAllocateSecondaryIP(toAssign)
+	switch err {
+	case ErrOutOfIP:
+		klog.Warningf("vpc is out of ip, pool size is not fulfilled")
+
+	case nil:
+
+	default:
 		klog.Errorf("failed to allocate ips: %v", err)
-		return
 	}
 	for _, ip := range vpcIps {
 		sendGratuitousArp(ip.Ip)
@@ -422,6 +460,80 @@ func (s *ipamServer) recycleCooldownIP() {
 		newSet = append(newSet, cdIP)
 	}
 	s.cooldownSet = newSet
+}
+
+func (s *ipamServer) borrowIPFromOthers() (*rpc.PodNetwork, error) {
+	ctx := context.Background()
+	val, err := s.crdClient.IpamdV1beta1().Ipamds("kube-system").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list ipamd resources: %v", err)
+	}
+	if len(val.Items) <= 1 {
+		// If the number of items is 1, it means that the current cluster only
+		// has one current ipamd, and there is no ipamd for us to borrow.
+		return nil, errors.New("no other ipamd to borrow ip")
+	}
+
+	ipamds := make([]*ipamdv1beta1.Ipamd, 0, len(val.Items)-1)
+	for _, ipamd := range val.Items {
+		if ipamd.Spec.Node == s.nodeName {
+			// Skip myself
+			continue
+		}
+		ipamd := ipamd
+		if ipamd.Status.Status == ipamdv1beta1.StatusDry {
+			// We can't get anything out of a pool that's been dry, so skip it
+			continue
+		}
+		ipamds = append(ipamds, &ipamd)
+	}
+	// Prioritize borrowing from pools with more remaining IPs.
+	// When a pool fails, we will continue to borrow downwards.
+	sort.Slice(ipamds, func(i, j int) bool {
+		return ipamds[i].Status.Current > ipamds[j].Status.Current
+	})
+
+	for _, ipamd := range ipamds {
+		conn, err := grpc.Dial(ipamd.Spec.Addr, grpc.WithInsecure(),
+			grpc.WithTimeout(time.Second*10))
+		if err != nil {
+			klog.Errorf("borrow: failed to dial ipamd %q: %v", ipamd.Name, err)
+			continue
+		}
+		defer conn.Close()
+
+		cli := rpc.NewCNIIpamClient(conn)
+		resp, err := cli.BorrowIP(ctx, &rpc.BorrowIPRequest{
+			MacAddr: s.hostMacAddr,
+		})
+		if err != nil {
+			klog.Error("failed to borrow from %q: %v", ipamd.Name, err)
+			continue
+		}
+		if resp.IP == nil {
+			klog.Errorf("borrow: ipamd %q returned empty result", ipamd.Name)
+		}
+		pn := resp.IP
+		klog.Infof("borrow ip %q from ipamd %q successed", pn.VPCIP, ipamd.Name)
+		return pn, nil
+	}
+
+	return nil, errors.New("failed to borrow ip from other ipamd")
+}
+
+func (s *ipamServer) doBorrowIP(newMac string) (*rpc.PodNetwork, error) {
+	if s.pool.Len() <= 1 {
+		return nil, fmt.Errorf("no free ip to borrow, size %d", s.pool.Len())
+	}
+	val, err := s.pool.Pop()
+	if err != nil {
+		return nil, fmt.Errorf("failed to pop ip from pool: %v", err)
+	}
+	err = s.uapiMoveSecondaryIPMac(val.VPCIP, s.hostMacAddr, newMac, val.SubnetID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
+	}
+	return val, nil
 }
 
 func (s *ipamServer) doFreeIpPool() {

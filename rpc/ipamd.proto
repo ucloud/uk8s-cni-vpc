@@ -10,6 +10,8 @@ service CNIIpam {
 	rpc AddPodNetworkRecord (AddPodNetworkRecordRequest) returns (AddPodNetworkRecordResponse) {}
 	rpc DelPodNetworkRecord (DelPodNetworkRecordRequest) returns (DelPodNetworkRecordResponse) {}
 	rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
+
+	rpc BorrowIP(BorrowIPRequest) returns (BorrowIPResponse) {}
 }
 
 message PingRequest {}
@@ -87,6 +89,15 @@ message PodNetwork {
 	bool Recycled = 17;
 }
 
+message BorrowIPRequest {
+	string MacAddr = 1;
+}
+
+message BorrowIPResponse {
+	CNIErrorCode Code = 1;
+	PodNetwork IP = 2;
+}
+
 enum CNIErrorCode {
 	CNISuccess = 0;
 
@@ -111,4 +122,6 @@ enum CNIErrorCode {
 
 	CNIWriteDBError = 1013;
 	CNIReadDBError = 1014;
+
+	CNIBorrowIPFailure = 1015;
 }
