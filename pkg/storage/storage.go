@@ -17,7 +17,7 @@ import (
 	"errors"
 )
 
-var ErrNotFound = errors.New("not found")
+var ErrEmpty = errors.New("storage is empty")
 
 // Storage persistent storage on disk
 // go get github.com/br0xen/boltbrowser

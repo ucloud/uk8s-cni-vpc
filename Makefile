@@ -1,5 +1,5 @@
 # The building args, they will be injected into binary file.
-CNI_VERSION=0.1.0-rc1
+CNI_VERSION=1.0.0-beta1
 WORKDIR=$(shell pwd)
 PKG_VERSION_PATH="github.com/ucloud/uk8s-cni-vpc/pkg/version"
 GO_VERSION=$(shell go version)
@@ -71,6 +71,7 @@ docker-build-cni:
 	${DOCKER_CMD} build -t ${CNI_VPC_BUILD_IMAGE} -f dockerfiles/cnivpc-build/Dockerfile .
 	@mkdir -p bin
 	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /cnivpc ./bin/cnivpc
+	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /ipamctl ./bin/ipamctl
 ifdef NODE_IP
 	scp bin/docker/cnivpc root@${NODE_IP}:/opt/cni/bin/cnivpc
 endif
