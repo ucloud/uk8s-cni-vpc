@@ -472,6 +472,12 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 		}
 		ipamds = append(ipamds, &ipamd)
 	}
+
+	if len(ipamds) == 0 {
+		// If ipamds is empty after filtering, all ipamds are in dry status.
+		return nil, errors.New("all pools are dry")
+	}
+
 	// Prioritize borrowing from pools with more remaining IPs.
 	// When a pool fails, we will continue to borrow downwards.
 	sort.Slice(ipamds, func(i, j int) bool {
