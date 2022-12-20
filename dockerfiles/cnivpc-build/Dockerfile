@@ -8,7 +8,9 @@ ENV GOPROXY=direct
 
 COPY . ./
 RUN make build-cni
+RUN make build-ipamctl
 
 FROM scratch AS export
 COPY --from=builder /go/src/cni-vpc-uk8s/bin/cnivpc /
+COPY --from=builder /go/src/cni-vpc-uk8s/bin/ipamctl /
 ENTRYPOINT [ "bash" ]
