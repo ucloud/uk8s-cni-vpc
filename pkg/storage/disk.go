@@ -116,7 +116,7 @@ func (d *Disk[T]) Get(key string) (*T, error) {
 			return item.Value, nil
 		}
 	}
-	return nil, ErrNotFound
+	return nil, ErrEmpty
 }
 
 func (d *Disk[T]) List() ([]*T, error) {
@@ -135,7 +135,7 @@ func (d *Disk[T]) Pop() (*T, error) {
 	defer d.lock.Unlock()
 
 	if len(d.data) == 0 {
-		return nil, ErrNotFound
+		return nil, ErrEmpty
 	}
 
 	result := d.data[0]

@@ -160,7 +160,7 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 
 func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 	val, err := s.pool.Pop()
-	if err == storage.ErrNotFound {
+	if err == storage.ErrEmpty {
 		// The pool is empty, try to assign a new one from VPC backend
 		vpcIps, err := s.uapiAllocateSecondaryIP(1)
 		if err != nil {
@@ -170,7 +170,7 @@ func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 				// The borrowed ip will call the vpc's MoveSecondaryIPMac to migrate
 				// MAC address, see:
 				//   https://docs.ucloud.cn/api/vpc2.0-api/move_secondary_ip_mac
-				klog.Error("out of ip in VPC, try to borrow one from other ipamd")
+				klog.Info("out of ip in VPC, try to borrow one from other ipamd")
 				pn, err := s.borrowIP()
 				if err != nil {
 					return nil, fmt.Errorf("vpc out of ip, and failed to borrow from others: %v", err)
@@ -387,7 +387,7 @@ func (s *ipamServer) releasePool(size int) {
 		if err != nil {
 			// If the pool is empty here, it means that someone else had consumed all ip(s)
 			// during the release process, we can safely interrupt in this case.
-			if !errors.Is(err, storage.ErrNotFound) {
+			if !errors.Is(err, storage.ErrEmpty) {
 				klog.Errorf("release ip: failed to pop ip: %v", err)
 			}
 			return
@@ -497,6 +497,7 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 		}
 		if resp.IP == nil {
 			klog.Errorf("borrow: ipamd %q returned empty result", ipamd.Name)
+			continue
 		}
 		pn := resp.IP
 		klog.Infof("borrow ip %q from ipamd %q successed", pn.VPCIP, ipamd.Name)
@@ -507,11 +508,11 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 }
 
 func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
-	if s.pool.Len() <= 1 {
-		return nil, fmt.Errorf("no free ip to lend, size %d", s.pool.Len())
-	}
 	val, err := s.pool.Pop()
 	if err != nil {
+		if err == storage.ErrEmpty {
+			return nil, errors.New("ip pool is empty")
+		}
 		return nil, fmt.Errorf("failed to pop ip from pool: %v", err)
 	}
 	err = s.uapiMoveSecondaryIPMac(val.VPCIP, s.hostMacAddr, newMac, val.SubnetID)
@@ -525,7 +526,7 @@ func (s *ipamServer) doFreeIpPool() {
 	var free int
 	for {
 		ip, err := s.pool.Pop()
-		if err == storage.ErrNotFound {
+		if err == storage.ErrEmpty {
 			klog.Infof("Free vpc ip pool(size %d) before my death.", free)
 			return
 		}
