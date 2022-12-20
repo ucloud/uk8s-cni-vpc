@@ -2,7 +2,7 @@ English | [简体中文](README_cn.md)
 
 <h1 align="center">UCloud K8s CNI-VPC Plugin</h1>
 
-This a [CNI plugin](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/) to implement underlay container network based on [UCloud VPC 2.0](https://docs.ucloud.cn/vpc/README).
+This is a [CNI plugin](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/) to implement the underlay container networking based on [UCloud VPC 2.0](https://docs.ucloud.cn/vpc/README).
 
 ## Install
 
@@ -150,7 +150,7 @@ make docker-build
 make docker-build-cni
 ```
 
-In some newer Linux systems, due to glibc compatibility issues, the directly built cni binary files may not be able to run on the UK8S machine. If this happens, use `make docker-build-cni` to build the cni binary.
+In some newer Linux systems, due to glibc compatibility reason, the directly built cni binary files may not be able to run on the UK8S machine. If this happens, use `make docker-build-cni` to build the cni binary.
 
 ### Testing
 
