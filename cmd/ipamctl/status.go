@@ -27,7 +27,7 @@ var Status = &cobra.Command{
 			return nil
 		}
 
-		lines := []string{"NAME | SIZE | STATUS"}
+		lines := []string{"NAME | SUBNET | SIZE | STATUS"}
 		for _, ipamd := range ipamdList.Items {
 			var attr color.Attribute
 			switch ipamd.Status.Status {
@@ -45,7 +45,8 @@ var Status = &cobra.Command{
 			}
 
 			c := color.New(attr)
-			line := fmt.Sprintf("%s | %d | %s", ipamd.Name, ipamd.Status.Current,
+			line := fmt.Sprintf("%s | %s | %d | %s", ipamd.Name,
+				ipamd.Spec.Subnet, ipamd.Status.Current,
 				c.Sprint(ipamd.Status.Status))
 			lines = append(lines, line)
 		}

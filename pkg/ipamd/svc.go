@@ -24,6 +24,7 @@ import (
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/boltdb/bolt"
@@ -73,6 +74,8 @@ type ipamServer struct {
 
 	// The tcp address to listen
 	tcpAddr string
+
+	uapi *uapi.ApiClient
 }
 
 func IpamdServer() error {
@@ -85,10 +88,17 @@ func IpamdServer() error {
 		return err
 	}
 
+	uapiClient, err := uapi.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to init uapi client: %v", err)
+	}
+
 	server := grpc.NewServer()
 	ipd := &ipamServer{
 		kubeClient: kubeClient,
 		crdClient:  crdClient,
+
+		uapi: uapiClient,
 
 		nodeName: os.Getenv("KUBE_NODE_NAME"),
 	}

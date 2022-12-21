@@ -38,8 +38,9 @@ type Ipamd struct {
 
 // IpamdSpec is the spec for a Ipamd resource
 type IpamdSpec struct {
-	Node string `json:"node"`
-	Addr string `json:"addr"`
+	Node   string `json:"node"`
+	Addr   string `json:"addr"`
+	Subnet string `json:"subnet"`
 }
 
 // IpamdSpec is the status for Ipamd resource
