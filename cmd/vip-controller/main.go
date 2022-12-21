@@ -149,7 +149,7 @@ func vipCheckAndClean() {
 }
 
 func releaseVPCIp(vpcip v1beta1.VpcIpClaim) error {
-	uApi, err := uapi.NewApiClient()
+	uApi, err := uapi.NewClient()
 	if err != nil {
 		return nil
 	}

@@ -82,7 +82,7 @@ func LocalRegion() string {
 	}
 }
 
-func NewApiClient() (*ApiClient, error) {
+func NewClient() (*ApiClient, error) {
 	self, err := getMyself()
 	if err != nil {
 		return nil, fmt.Errorf("cannot get uapi metadata information, %v", err)

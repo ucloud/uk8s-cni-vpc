@@ -140,7 +140,7 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 		return nil, err
 	}
 
-	uApi, err := uapi.NewApiClient()
+	uApi, err := uapi.NewClient()
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +179,7 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 }
 
 func checkSecondaryIPExist(ip, mac string) (bool, error) {
-	uApi, err := uapi.NewApiClient()
+	uApi, err := uapi.NewClient()
 	if err != nil {
 		return false, err
 	}
@@ -219,7 +219,7 @@ func instanceType(resource string) string {
 }
 
 func getObjectIDforSecondaryIP() (string, error) {
-	uApi, err := uapi.NewApiClient()
+	uApi, err := uapi.NewClient()
 	if err != nil {
 		return "", err
 	}
@@ -267,7 +267,7 @@ func deallocateSecondaryIP(podName, podNS, podInfraContainerID string, pNet *rpc
 	}
 
 	// Create UCloud api client config
-	uApi, err := uapi.NewApiClient()
+	uApi, err := uapi.NewClient()
 	if err != nil {
 		return err
 	}

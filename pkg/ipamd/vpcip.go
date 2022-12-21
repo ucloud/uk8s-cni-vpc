@@ -323,8 +323,9 @@ func (s *ipamServer) updateStatus() error {
 				Name: s.nodeName,
 			},
 			Spec: ipamdv1beta1.IpamdSpec{
-				Node: s.nodeName,
-				Addr: s.tcpAddr,
+				Node:   s.nodeName,
+				Addr:   s.tcpAddr,
+				Subnet: s.uapi.SubnetID(),
 			},
 			Status: status,
 		}
@@ -459,6 +460,8 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 		return nil, errors.New("no other ipamd to borrow ip")
 	}
 
+	currentSubnet := s.uapi.SubnetID()
+
 	ipamds := make([]*ipamdv1beta1.Ipamd, 0, len(val.Items)-1)
 	for _, ipamd := range val.Items {
 		if ipamd.Spec.Node == s.nodeName {
@@ -470,12 +473,18 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 			// We can't get anything out of a pool that's been dry, so skip it
 			continue
 		}
+		if ipamd.Spec.Subnet != currentSubnet {
+			// Borrowing IP across subnets is not allowed. Because the Mac address
+			// of the current node does not exist in other subnets, routing cannot
+			// be performed.
+			continue
+		}
 		ipamds = append(ipamds, &ipamd)
 	}
 
 	if len(ipamds) == 0 {
 		// If ipamds is empty after filtering, all ipamds are in dry status.
-		return nil, errors.New("all pools are dry")
+		return nil, errors.New("no ipamd to borrow")
 	}
 
 	// Prioritize borrowing from pools with more remaining IPs.
@@ -523,6 +532,9 @@ func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
 	}
 	err = s.uapiMoveSecondaryIPMac(val.VPCIP, s.hostMacAddr, newMac, val.SubnetID)
 	if err != nil {
+		// If the loan fails, we need to put the IP back into the pool, otherwise
+		// it will cause IP leakage.
+		s.pool.Set(getReservedIPKey(val), val)
 		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
 	}
 	return val, nil
