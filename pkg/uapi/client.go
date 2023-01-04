@@ -149,6 +149,7 @@ func NewClient() (*ApiClient, error) {
 	uApi := &ApiClient{
 		instanceId: self.InstanceId,
 		zoneId:     self.AvailabilityZone,
+		cfg:        &cfg,
 	}
 	// Get vpcId and subnetId
 	if len(self.UHost.NetworkInterfaces) > 0 {
