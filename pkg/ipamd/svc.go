@@ -78,7 +78,7 @@ type ipamServer struct {
 	uapi *uapi.ApiClient
 }
 
-func IpamdServer() error {
+func Start() error {
 	kubeClient, err := kubeclient.Get()
 	if err != nil {
 		return err
@@ -260,16 +260,4 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	s.Stop()
 	klog.Flush()
 	os.Exit(0)
-}
-
-func unInstallCNIComponent() {
-	err := GenerateConfFile(false)
-	if err != nil {
-		klog.Fatal(err)
-	}
-	// Install cni binary and configure file
-	err = InstallCNIComponent("/app/10-cnivpc.conf", "/opt/cni/net.d/10-cnivpc.conf")
-	if err != nil {
-		klog.Errorf("Failed to copy 10-cnivpc.conf, %v", err)
-	}
 }

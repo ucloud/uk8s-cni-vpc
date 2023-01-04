@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -76,30 +75,6 @@ func hostType(resourceId string) string {
 	return "UHost"
 }
 
-// Generate conf file 10-cnivpc.conf, if node is UPHost, master network interface will be net1 instead of eth0.
-func GenerateConfFile(ipamd bool) error {
-	allocateIpByIpamd := "false"
-	if ipamd {
-		allocateIpByIpamd = "true"
-	}
-	conf := &CNIVPCConf{
-		CNIVersion:           "0.3.1",
-		Name:                 "cni-vpc-uk8s",
-		Type:                 "cnivpc",
-		MasterInterface:      getMasterInterface(),
-		Capabilities:         map[string]bool{"portMappings": true},
-		ExternalSetMarkChain: "KUBE-MARK-MASQ",
-		AllocateIpByIpamd:    allocateIpByIpamd,
-	}
-
-	content, err := json.Marshal(conf)
-	if err != nil {
-		klog.Errorf("Unable to marshal 10-cnivpc.conf json, %v", err)
-		return err
-	}
-	return ioutil.WriteFile("/app/10-cnivpc.conf", content, 0644)
-}
-
 func getMasterInterface() string {
 	list, err := net.Interfaces()
 	if err != nil {
@@ -134,11 +109,6 @@ func LoadCNIVPCConf() (*CNIVPCConf, error) {
 func pathExist(filename string) bool {
 	_, err := os.Stat(filename)
 	return err == nil || os.IsExist(err)
-}
-
-func InstallCNIComponent(src, dst string) error {
-	klog.Infof("Copy %s to %s", src, dst)
-	return copyFileContents(src, dst)
 }
 
 // copyFileContents copies a file

@@ -46,34 +46,10 @@ func main() {
 	}
 
 	showVersion()
-	os.Exit(_main())
-}
 
-func _main() int {
-	err := ipamd.GenerateConfFile(true)
+	err := ipamd.Start()
 	if err != nil {
-		klog.Fatal(err)
+		klog.Errorf("Failed to launch ipamd service: %v", err)
+		os.Exit(1)
 	}
-	// Install cni binary and configure file
-	err = ipamd.InstallCNIComponent("/app/cnivpc", "/opt/cni/bin/cnivpc")
-	if err != nil {
-		klog.Errorf("Failed to copy cnivpc, %v", err)
-		return 1
-	}
-	err = ipamd.InstallCNIComponent("/app/10-cnivpc.conf", "/opt/cni/net.d/10-cnivpc.conf")
-	if err != nil {
-		klog.Errorf("Failed to copy 10-cnivpc.conf, %v", err)
-		return 1
-	}
-
-	err = startIpamd()
-	if err != nil {
-		klog.Errorf("Cannot launch ipamd service, %v", err)
-		return 1
-	}
-	return 0
-}
-
-func startIpamd() error {
-	return ipamd.IpamdServer()
 }
