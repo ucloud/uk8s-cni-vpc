@@ -48,12 +48,15 @@ type ApiClient struct {
 func (c *ApiClient) VPCClient() *vpc.VPCClient {
 	return c.vpcClient
 }
+
 func (c *ApiClient) UNetClient() *unet.UNetClient {
 	return c.unetClient
 }
+
 func (c *ApiClient) UK8SClient() *uk8s.UK8SClient {
 	return c.uk8sClient
 }
+
 func (c *ApiClient) UHostClient() *uhost.UHostClient {
 	return c.uhostClient
 }
@@ -69,6 +72,7 @@ func (c *ApiClient) AvailabilityZone() string {
 func (c *ApiClient) VPCID() string {
 	return c.vpcId
 }
+
 func (c *ApiClient) SubnetID() string {
 	return c.subnetId
 }
@@ -124,13 +128,9 @@ func NewClient() (*ApiClient, error) {
 		credential = *c.Credential()
 	}
 	vpcClient := vpc.NewClient(&cfg, &credential)
-	vpcClient.AddResponseHandler(cniAPIReport)
 	unetClient := unet.NewClient(&cfg, &credential)
-	unetClient.AddResponseHandler(cniAPIReport)
 	uk8sClient := uk8s.NewClient(&cfg, &credential)
-	uk8sClient.AddResponseHandler(cniAPIReport)
 	uhostClient := uhost.NewClient(&cfg, &credential)
-	uhostClient.AddResponseHandler(cniAPIReport)
 
 	uApi := &ApiClient{
 		vpcClient:   vpcClient,
