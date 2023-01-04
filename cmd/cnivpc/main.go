@@ -14,7 +14,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -22,10 +21,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/lockfile"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/portmap"
-	tp "github.com/ucloud/uk8s-cni-vpc/pkg/types"
 	vs "github.com/ucloud/uk8s-cni-vpc/pkg/version"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -61,16 +60,6 @@ func init() {
 	runtime.LockOSThread()
 }
 
-// parseConfig parses the supplied configuration from stdin.
-func parseConfig(stdin []byte) (*tp.PluginConf, error) {
-	conf := tp.PluginConf{}
-	log.Infof("StdIn is %s", stdin)
-	if err := json.Unmarshal(stdin, &conf); err != nil {
-		return nil, fmt.Errorf("failed to parse network configuration: %v", err)
-	}
-	return &conf, nil
-}
-
 // loadSandboxArgs parses args from a string in the form "K=V;K2=V2;..."
 // This are CNI_ARGS for sandbox containers passed by kubelet
 func loadSandboxArgs(args string) map[string]string {
@@ -94,7 +83,8 @@ func cmdVersion(args *skel.CmdArgs) error {
 
 // cmdAdd is called for ADD requests
 func cmdAdd(args *skel.CmdArgs) error {
-	conf, err := parseConfig(args.StdinData)
+	log.Infof("cmdAdd, stdin data: %s", string(args.StdinData))
+	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
 		log.Errorf("Failed to parse cmdAdd config: %v", err)
 		return err
@@ -193,10 +183,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 // cmdDel is called for DELETE requests
 func cmdDel(args *skel.CmdArgs) error {
-	log.Infof("Now begin cnivpc(%d) cmd delete %+v", os.Getpid(), args)
-	conf, err := parseConfig(args.StdinData)
+	log.Infof("cmdDel, stdin data: %s", string(args.StdinData))
+	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
-		log.Infof("CMD Delete parse config failed: %v", err)
+		log.Errorf("Failed to parse cmdDel config: %v", err)
 		return err
 	}
 	podArgs := loadSandboxArgs(args.Args)

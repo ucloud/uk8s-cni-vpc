@@ -14,7 +14,6 @@
 package ipamd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -24,16 +23,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
 )
-
-type CNIVPCConf struct {
-	CNIVersion           string          `json:"cniVersion"`
-	Name                 string          `json:"name"`
-	Type                 string          `json:"type"`
-	MasterInterface      string          `json:"masterInterface"`
-	Capabilities         map[string]bool `json:"capabilities"`
-	ExternalSetMarkChain string          `json:"externalSetMarkChain"`
-	AllocateIpByIpamd    string          `json:"allocateIpByIpamd"`
-}
 
 // Get node master network interface mac address.
 // By setting pod spec hostNetwork:true, we can get mac addresses in host network namespace.
@@ -88,22 +77,6 @@ func getMasterInterface() string {
 		}
 	}
 	return UHostMasterInterface
-}
-
-func LoadCNIVPCConf() (*CNIVPCConf, error) {
-	file := "/opt/cni/net.d/10-cnivpc.conf"
-	filePtr, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer filePtr.Close()
-	var conf CNIVPCConf
-	decoder := json.NewDecoder(filePtr)
-	err = decoder.Decode(&conf)
-	if err != nil {
-		return nil, err
-	}
-	return &conf, nil
 }
 
 func pathExist(filename string) bool {

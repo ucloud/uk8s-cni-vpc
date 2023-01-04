@@ -27,19 +27,18 @@ package portmap
 import (
 	"fmt"
 
-	tp "github.com/ucloud/uk8s-cni-vpc/pkg/types"
-
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	log "github.com/sirupsen/logrus"
+	"github.com/ucloud/uk8s-cni-vpc/config"
 )
 
 // The default mark bit to signal that masquerading is required
 // Kubernetes uses 14 and 15, Calico uses 20-31.
 const DefaultMarkBit = 13
 
-func CmdAdd(args *skel.CmdArgs, conf *tp.PluginConf) error {
+func CmdAdd(args *skel.CmdArgs, conf *config.Plugin) error {
 	netConf, _, err := parseConfig(conf, args.IfName)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
@@ -73,7 +72,7 @@ func CmdAdd(args *skel.CmdArgs, conf *tp.PluginConf) error {
 	return types.PrintResult(netConf.PrevResult, netConf.CNIVersion)
 }
 
-func CmdDel(args *skel.CmdArgs, conf *tp.PluginConf) error {
+func CmdDel(args *skel.CmdArgs, conf *config.Plugin) error {
 	netConf, _, err := parseConfig(conf, args.IfName)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %v", err)
@@ -94,7 +93,7 @@ func CmdDel(args *skel.CmdArgs, conf *tp.PluginConf) error {
 	return nil
 }
 
-func CmdCheck(args *skel.CmdArgs, conf *tp.PluginConf) error {
+func CmdCheck(args *skel.CmdArgs, conf *config.Plugin) error {
 	conf, result, err := parseConfig(conf, args.IfName)
 	if err != nil {
 		return err
@@ -127,7 +126,7 @@ func CmdCheck(args *skel.CmdArgs, conf *tp.PluginConf) error {
 }
 
 // parseConfig parses the supplied configuration (and prevResult) from stdin.
-func parseConfig(conf *tp.PluginConf, ifName string) (*tp.PluginConf, *current.Result, error) {
+func parseConfig(conf *config.Plugin, ifName string) (*config.Plugin, *current.Result, error) {
 	// Parse previous result.
 	var result *current.Result
 	if conf.PrevResult != nil {

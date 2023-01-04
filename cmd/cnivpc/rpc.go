@@ -70,18 +70,6 @@ func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNe
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
 func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
-	conf, err := ipamd.LoadCNIVPCConf()
-	// static ip enable, allocate ip must be from ipamd
-	if err == nil && conf.AllocateIpByIpamd == "true" {
-		conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
-		if err != nil {
-			return nil, false, err
-		}
-		defer conn.Close()
-		c := rpc.NewCNIIpamClient(conn)
-		ip, err := allocateSecondaryIPFromIpamd(c, podName, podNS, netNS, sandboxId)
-		return ip, true, err
-	}
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	if err != nil {
 		// Cannot establish gRPC unix domain connection to ipamd
@@ -101,17 +89,6 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
 // if not, do this on myself.
 func releasePodIp(podName, podNS, netNS, sandboxId string, pNet *rpc.PodNetwork) error {
-	conf, err := ipamd.LoadCNIVPCConf()
-	// static ip enable, deallocate ip must be from ipamd
-	if err == nil && conf.AllocateIpByIpamd == "true" {
-		conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
-		if err != nil {
-			return err
-		}
-		defer conn.Close()
-		c := rpc.NewCNIIpamClient(conn)
-		return deallocateSecondaryIPFromIpamd(c, podName, podNS, netNS, sandboxId, pNet)
-	}
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	if err != nil {
 		// Cannot establish gRPC unix domain connection to ipamd
