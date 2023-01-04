@@ -223,7 +223,7 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	ifname := os.Getenv("CNI_IFNAME")
 	if netNS != "" && ifname != "" {
-		// The conatiner manager can delete the interface for us, but this is unreliable that
+		// The container manager can delete the interface for us, but this is unreliable that
 		// sometimes the container manager will fail to delete the interface for various reasons.
 		// So we need to manually perform a cleanup here to avoid interface leaks.
 		err = ns.WithNetNSPath(netNS, func(_ ns.NetNS) error {
