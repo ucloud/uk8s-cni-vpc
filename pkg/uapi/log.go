@@ -31,24 +31,24 @@ func getMyExecName() string {
 
 func logErrorf(fmt string, args ...interface{}) {
 	if getMyExecName() == binCNI {
-		logrus.Errorf(fmt, args)
+		logrus.Errorf(fmt, args...)
 	} else {
-		klog.Errorf(fmt, args)
+		klog.Errorf(fmt, args...)
 	}
 }
 
 func logWarningf(fmt string, args ...interface{}) {
 	if getMyExecName() == binCNI {
-		logrus.Warningf(fmt, args)
+		logrus.Warningf(fmt, args...)
 	} else {
-		klog.Warningf(fmt, args)
+		klog.Warningf(fmt, args...)
 	}
 }
 
 func logInfof(fmt string, args ...interface{}) {
 	if getMyExecName() == binCNI {
-		logrus.Infof(fmt, args)
+		logrus.Infof(fmt, args...)
 	} else {
-		klog.Infof(fmt, args)
+		klog.Infof(fmt, args...)
 	}
 }

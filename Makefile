@@ -1,5 +1,5 @@
 # The building args, they will be injected into binary file.
-CNI_VERSION=1.0.0
+CNI_VERSION=1.0.1
 WORKDIR=$(shell pwd)
 PKG_VERSION_PATH="github.com/ucloud/uk8s-cni-vpc/pkg/version"
 GO_VERSION=$(shell go version)
@@ -28,7 +28,7 @@ DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.4)
 
 .PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
-		check-fmt fmt version clean generate-grpc \
+		check-fmt fmt install-check check version clean generate-grpc \
 		build build-cni build-ipamd build-ipamctl build-vip-controller \
 		install-grpc generate-k8s generate-grpc
 
@@ -76,11 +76,11 @@ ifdef NODE_IP
 	scp bin/docker/cnivpc root@${NODE_IP}:/opt/cni/bin/cnivpc
 endif
 
-docker-base-image:
+docker-build-base-image:
 	${DOCKER_CMD} build -t ${DOCKER_BASE_IMAGE} -f dockerfiles/base/Dockerfile .
 	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
 
-deploy-docker-base-image: docker-base-image
+docker-deploy-base-image: docker-base-image
 	${DOCKER_CMD} push ${DOCKER_BASE_IMAGE}
 	@echo "Successfully pushed ${DOCKER_BASE_IMAGE}"
 
@@ -93,6 +93,22 @@ fmt:
 
 check-fmt:
 	@./scripts/check-fmt.sh
+
+install-check:
+	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	@go install github.com/client9/misspell/cmd/misspell@latest
+	@go install github.com/gordonklaus/ineffassign@latest
+	@go install golang.org/x/tools/cmd/goimports@latest
+
+check:
+	@echo "==> check ineffassign"
+	@ineffassign ./...
+	@echo "==> check spell"
+	@find . -type f -name '*.go' | xargs misspell -error
+	@echo "==> check gocyclo"
+	@gocyclo -over 70 .
+	@echo "==> go vet"
+	@go vet ./...
 
 version:
 	@echo ${CNI_VERSION}

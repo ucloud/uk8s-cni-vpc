@@ -14,10 +14,8 @@
 package ipamd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"strings"
@@ -25,16 +23,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
 )
-
-type CNIVPCConf struct {
-	CNIVersion           string          `json:"cniVersion"`
-	Name                 string          `json:"name"`
-	Type                 string          `json:"type"`
-	MasterInterface      string          `json:"masterInterface"`
-	Capabilities         map[string]bool `json:"capabilities"`
-	ExternalSetMarkChain string          `json:"externalSetMarkChain"`
-	AllocateIpByIpamd    string          `json:"allocateIpByIpamd"`
-}
 
 // Get node master network interface mac address.
 // By setting pod spec hostNetwork:true, we can get mac addresses in host network namespace.
@@ -76,30 +64,6 @@ func hostType(resourceId string) string {
 	return "UHost"
 }
 
-// Generate conf file 10-cnivpc.conf, if node is UPHost, master network interface will be net1 instead of eth0.
-func GenerateConfFile(ipamd bool) error {
-	allocateIpByIpamd := "false"
-	if ipamd {
-		allocateIpByIpamd = "true"
-	}
-	conf := &CNIVPCConf{
-		CNIVersion:           "0.3.1",
-		Name:                 "cni-vpc-uk8s",
-		Type:                 "cnivpc",
-		MasterInterface:      getMasterInterface(),
-		Capabilities:         map[string]bool{"portMappings": true},
-		ExternalSetMarkChain: "KUBE-MARK-MASQ",
-		AllocateIpByIpamd:    allocateIpByIpamd,
-	}
-
-	content, err := json.Marshal(conf)
-	if err != nil {
-		klog.Errorf("Unable to marshal 10-cnivpc.conf json, %v", err)
-		return err
-	}
-	return ioutil.WriteFile("/app/10-cnivpc.conf", content, 0644)
-}
-
 func getMasterInterface() string {
 	list, err := net.Interfaces()
 	if err != nil {
@@ -115,30 +79,9 @@ func getMasterInterface() string {
 	return UHostMasterInterface
 }
 
-func LoadCNIVPCConf() (*CNIVPCConf, error) {
-	file := "/opt/cni/net.d/10-cnivpc.conf"
-	filePtr, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer filePtr.Close()
-	var conf CNIVPCConf
-	decoder := json.NewDecoder(filePtr)
-	err = decoder.Decode(&conf)
-	if err != nil {
-		return nil, err
-	}
-	return &conf, nil
-}
-
 func pathExist(filename string) bool {
 	_, err := os.Stat(filename)
 	return err == nil || os.IsExist(err)
-}
-
-func InstallCNIComponent(src, dst string) error {
-	klog.Infof("Copy %s to %s", src, dst)
-	return copyFileContents(src, dst)
 }
 
 // copyFileContents copies a file

@@ -78,7 +78,7 @@ type ipamServer struct {
 	uapi *uapi.ApiClient
 }
 
-func IpamdServer() error {
+func Start() error {
 	kubeClient, err := kubeclient.Get()
 	if err != nil {
 		return err
@@ -244,7 +244,7 @@ func (s *ipamServer) initServer() {
 // Remove socket file on my termination.
 // Remove any pre-allocated secondary vpc ip.
 func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, os.Kill, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	klog.Infof("Receive signal %+v, will stop myself gracefully", sig)
@@ -253,23 +253,11 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	ipd.doFreeCooldown()
 	ipd.store.Close()
 	ipd.pool.Close()
-	//if ipamd is updating and rollback to cni, the cni will not know how to deal with the static ip.(maybe free the static ip)
-	//so unless the user detach the ipamd through another way, the ipamd should not unInstallCNIComponent
+	// if ipamd is updating and rollback to cni, the cni will not know how to deal with the static ip.(maybe free the static ip)
+	// so unless the user detach the ipamd through another way, the ipamd should not unInstallCNIComponent
 	//unInstallCNIComponent()
 	klog.Info("Good Bye!")
 	s.Stop()
 	klog.Flush()
 	os.Exit(0)
-}
-
-func unInstallCNIComponent() {
-	err := GenerateConfFile(false)
-	if err != nil {
-		klog.Fatal(err)
-	}
-	// Install cni binary and configure file
-	err = InstallCNIComponent("/app/10-cnivpc.conf", "/opt/cni/net.d/10-cnivpc.conf")
-	if err != nil {
-		klog.Errorf("Failed to copy 10-cnivpc.conf, %v", err)
-	}
 }

@@ -18,11 +18,10 @@ import (
 	"sort"
 	"strconv"
 
-	tp "github.com/ucloud/uk8s-cni-vpc/pkg/types"
-
 	"github.com/containernetworking/plugins/pkg/utils"
 	"github.com/containernetworking/plugins/pkg/utils/sysctl"
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/ucloud/uk8s-cni-vpc/config"
 )
 
 // This creates the chains to be added to iptables. The basic structure is
@@ -49,7 +48,7 @@ const OldTopLevelSNATChainName = "CNI-HOSTPORT-SNAT"
 
 // forwardPorts establishes port forwarding to a given container IP.
 // containerNet.IP can be either v4 or v6.
-func forwardPorts(config *tp.PluginConf, containerNet net.IPNet) error {
+func forwardPorts(config *config.Plugin, containerNet net.IPNet) error {
 	isV6 := (containerNet.IP.To4() == nil)
 
 	var ipt *iptables.IPTables
@@ -112,7 +111,7 @@ func forwardPorts(config *tp.PluginConf, containerNet net.IPNet) error {
 	return nil
 }
 
-func checkPorts(config *tp.PluginConf, containerNet net.IPNet) error {
+func checkPorts(config *config.Plugin, containerNet net.IPNet) error {
 
 	dnatChain := genDnatChain(config.Name, config.ContainerID)
 	fillDnatRules(&dnatChain, config, containerNet)
@@ -180,7 +179,7 @@ func genDnatChain(netName, containerID string) chain {
 
 // dnatRules generates the destination NAT rules, one per port, to direct
 // traffic from hostip:hostport to podip:podport
-func fillDnatRules(c *chain, config *tp.PluginConf, containerNet net.IPNet) {
+func fillDnatRules(c *chain, config *config.Plugin, containerNet net.IPNet) {
 	isV6 := (containerNet.IP.To4() == nil)
 	comment := trimComment(fmt.Sprintf(`dnat name: "%s" id: "%s"`, config.Name, config.ContainerID))
 	entries := config.RuntimeConfig.PortMaps
@@ -358,7 +357,7 @@ func genOldSnatChain(netName, containerID string) chain {
 // don't know which protocols were used.
 // So, we first check that iptables is "generally OK" by doing a check. If
 // not, we ignore the error, unless neither v4 nor v6 are OK.
-func unforwardPorts(config *tp.PluginConf) error {
+func unforwardPorts(config *config.Plugin) error {
 	dnatChain := genDnatChain(config.Name, config.ContainerID)
 
 	// Might be lying around from old versions

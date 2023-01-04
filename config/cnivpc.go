@@ -11,13 +11,18 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package types
+package config
 
 import (
+	"encoding/json"
+	"fmt"
 	"net"
+	"os"
 
 	"github.com/containernetworking/cni/pkg/types"
 )
+
+const cnivpcPath = "/opt/cni/net.d/10-cnivpc.conf"
 
 // PortMapEntry corresponds to a single entry in the port_mappings argument,
 // see CONVENTIONS.md
@@ -28,8 +33,8 @@ type PortMapEntry struct {
 	HostIP        string `json:"hostIP,omitempty"`
 }
 
-// PluginConf contains configuration parameters
-type PluginConf struct {
+// Plugin contains configuration parameters
+type Plugin struct {
 	types.NetConf
 	MasterInterface      string    `json:"masterInterface"`
 	SNAT                 *bool     `json:"snat,omitempty"`
@@ -46,4 +51,20 @@ type PluginConf struct {
 	ContainerID string    `json:"-"`
 	ContIPv4    net.IPNet `json:"-"`
 	ContIPv6    net.IPNet `json:"-"`
+}
+
+func ParsePlugin(data []byte) (*Plugin, error) {
+	var cni Plugin
+	if err := json.Unmarshal(data, &cni); err != nil {
+		return nil, fmt.Errorf("failed to parse cnivpc config: %v", err)
+	}
+	return &cni, nil
+}
+
+func LoadPlugin() (*Plugin, error) {
+	data, err := os.ReadFile(cnivpcPath)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlugin(data)
 }

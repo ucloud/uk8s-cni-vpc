@@ -14,7 +14,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -22,10 +21,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/lockfile"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/portmap"
-	tp "github.com/ucloud/uk8s-cni-vpc/pkg/types"
 	vs "github.com/ucloud/uk8s-cni-vpc/pkg/version"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -61,16 +60,6 @@ func init() {
 	runtime.LockOSThread()
 }
 
-// parseConfig parses the supplied configuration from stdin.
-func parseConfig(stdin []byte) (*tp.PluginConf, error) {
-	conf := tp.PluginConf{}
-	log.Infof("StdIn is %s", stdin)
-	if err := json.Unmarshal(stdin, &conf); err != nil {
-		return nil, fmt.Errorf("failed to parse network configuration: %v", err)
-	}
-	return &conf, nil
-}
-
 // loadSandboxArgs parses args from a string in the form "K=V;K2=V2;..."
 // This are CNI_ARGS for sandbox containers passed by kubelet
 func loadSandboxArgs(args string) map[string]string {
@@ -92,15 +81,22 @@ func cmdVersion(args *skel.CmdArgs) error {
 	return nil
 }
 
+func cmdArgsString(args *skel.CmdArgs) string {
+	stdin := string(args.StdinData)
+	stdin = strings.ReplaceAll(stdin, "\n", "")
+	return fmt.Sprintf("container: %s, netns: %s, ifname: %s, args: %s, path: %s, stdin: %s",
+		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path, stdin)
+}
+
 // cmdAdd is called for ADD requests
 func cmdAdd(args *skel.CmdArgs) error {
-	conf, err := parseConfig(args.StdinData)
+	log.Infof("cmdAdd, %s", cmdArgsString(args))
+	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
 		log.Errorf("Failed to parse cmdAdd config: %v", err)
 		return err
 	}
 
-	log.Infof("Now begin cnivpc(%d) cmd add, args %+v", os.Getpid(), args)
 	podArgs := loadSandboxArgs(args.Args)
 	podName := podArgs["K8S_POD_NAME"]
 	podNS := podArgs["K8S_POD_NAMESPACE"]
@@ -193,10 +189,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 // cmdDel is called for DELETE requests
 func cmdDel(args *skel.CmdArgs) error {
-	log.Infof("Now begin cnivpc(%d) cmd delete %+v", os.Getpid(), args)
-	conf, err := parseConfig(args.StdinData)
+	log.Infof("cmdDel, %s", cmdArgsString(args))
+	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
-		log.Infof("CMD Delete parse config failed: %v", err)
+		log.Errorf("Failed to parse cmdDel config: %v", err)
 		return err
 	}
 	podArgs := loadSandboxArgs(args.Args)
@@ -233,7 +229,7 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	ifname := os.Getenv("CNI_IFNAME")
 	if netNS != "" && ifname != "" {
-		// The conatiner manager can delete the interface for us, but this is unreliable that
+		// The container manager can delete the interface for us, but this is unreliable that
 		// sometimes the container manager will fail to delete the interface for various reasons.
 		// So we need to manually perform a cleanup here to avoid interface leaks.
 		err = ns.WithNetNSPath(netNS, func(_ ns.NetNS) error {

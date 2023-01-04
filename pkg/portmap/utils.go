@@ -19,8 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	tp "github.com/ucloud/uk8s-cni-vpc/pkg/types"
-
+	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/vishvananda/netlink"
 )
 
@@ -61,7 +60,7 @@ func getRoutableHostIF(containerIP net.IP) string {
 }
 
 // groupByProto groups port numbers by protocol
-func groupByProto(entries []tp.PortMapEntry) map[string][]int {
+func groupByProto(entries []config.PortMapEntry) map[string][]int {
 	if len(entries) == 0 {
 		return map[string][]int{}
 	}
