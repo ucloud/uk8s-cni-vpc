@@ -25,6 +25,7 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/auth"
+	"github.com/ucloud/ucloud-sdk-go/ucloud/config"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 )
@@ -35,30 +36,44 @@ const (
 )
 
 type ApiClient struct {
-	unetClient  *unet.UNetClient
-	vpcClient   *vpc.VPCClient
-	uk8sClient  *uk8s.UK8SClient
-	uhostClient *uhost.UHostClient
-	instanceId  string
-	zoneId      string
-	vpcId       string
-	subnetId    string
+	instanceId string
+	zoneId     string
+	vpcId      string
+	subnetId   string
+
+	cfg *config.Config
 }
 
-func (c *ApiClient) VPCClient() *vpc.VPCClient {
-	return c.vpcClient
+func (c *ApiClient) VPCClient() (*vpc.VPCClient, error) {
+	cre, err := c.CreateCredential()
+	if err != nil {
+		return nil, err
+	}
+	return vpc.NewClient(c.cfg, cre), nil
 }
 
-func (c *ApiClient) UNetClient() *unet.UNetClient {
-	return c.unetClient
+func (c *ApiClient) UNetClient() (*unet.UNetClient, error) {
+	cre, err := c.CreateCredential()
+	if err != nil {
+		return nil, err
+	}
+	return unet.NewClient(c.cfg, cre), nil
 }
 
-func (c *ApiClient) UK8SClient() *uk8s.UK8SClient {
-	return c.uk8sClient
+func (c *ApiClient) UK8SClient() (*uk8s.UK8SClient, error) {
+	cre, err := c.CreateCredential()
+	if err != nil {
+		return nil, err
+	}
+	return uk8s.NewClient(c.cfg, cre), nil
 }
 
-func (c *ApiClient) UHostClient() *uhost.UHostClient {
-	return c.uhostClient
+func (c *ApiClient) UHostClient() (*uhost.UHostClient, error) {
+	cre, err := c.CreateCredential()
+	if err != nil {
+		return nil, err
+	}
+	return uhost.NewClient(c.cfg, cre), nil
 }
 
 func (c *ApiClient) InstanceID() string {
@@ -75,6 +90,24 @@ func (c *ApiClient) VPCID() string {
 
 func (c *ApiClient) SubnetID() string {
 	return c.subnetId
+}
+
+func (c *ApiClient) CreateCredential() (*auth.Credential, error) {
+	var credential auth.Credential
+	// In latest uk8s clusters, we removed api key in cm uk8sconfig
+	config, err := external.LoadSTSConfig(external.AssumeRoleRequest{RoleName: characterName})
+	if err != nil {
+		logWarningf("Cannot get sts token for role %v, %v, credential will be invalid", characterName, err)
+		// In past uk8s clusters, we injected api key in cm uk8sconfig
+		credential.PublicKey = os.Getenv("UCLOUD_API_PUBKEY")
+		credential.PrivateKey = os.Getenv("UCLOUD_API_PRIKEY")
+		if len(credential.PublicKey) == 0 || len(credential.PrivateKey) == 0 {
+			return nil, fmt.Errorf("cannot get uapi credential, sts call failed, %v and env UCLOUD_API_PUB/PRI/KEY empty", err)
+		}
+	} else {
+		credential = *config.Credential()
+	}
+	return &credential, nil
 }
 
 func LocalRegion() string {
@@ -113,32 +146,9 @@ func NewClient() (*ApiClient, error) {
 		cfg.BaseUrl = uApiDefaultEndpoint
 	}
 
-	var credential auth.Credential
-	// In latest uk8s clusters, we removed api key in cm uk8sconfig
-	c, err := external.LoadSTSConfig(external.AssumeRoleRequest{RoleName: characterName})
-	if err != nil {
-		logWarningf("Cannot get sts token for role %v, %v, credential will be invalid", characterName, err)
-		// In past uk8s clusters, we injected api key in cm uk8sconfig
-		credential.PublicKey = os.Getenv("UCLOUD_API_PUBKEY")
-		credential.PrivateKey = os.Getenv("UCLOUD_API_PRIKEY")
-		if len(credential.PublicKey) == 0 || len(credential.PrivateKey) == 0 {
-			return nil, fmt.Errorf("cannot get uapi credential, sts call failed, %v and env UCLOUD_API_PUB/PRI/KEY empty", err)
-		}
-	} else {
-		credential = *c.Credential()
-	}
-	vpcClient := vpc.NewClient(&cfg, &credential)
-	unetClient := unet.NewClient(&cfg, &credential)
-	uk8sClient := uk8s.NewClient(&cfg, &credential)
-	uhostClient := uhost.NewClient(&cfg, &credential)
-
 	uApi := &ApiClient{
-		vpcClient:   vpcClient,
-		unetClient:  unetClient,
-		uk8sClient:  uk8sClient,
-		uhostClient: uhostClient,
-		instanceId:  self.InstanceId,
-		zoneId:      self.AvailabilityZone,
+		instanceId: self.InstanceId,
+		zoneId:     self.AvailabilityZone,
 	}
 	// Get vpcId and subnetId
 	if len(self.UHost.NetworkInterfaces) > 0 {

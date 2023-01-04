@@ -152,9 +152,13 @@ func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
 		return instanceId, nil
 	}
 
-	req := s.uapi.UHostClient().NewDescribeUHostInstanceRequest()
+	cli, err := s.uapi.UHostClient()
+	if err != nil {
+		return "", err
+	}
+	req := cli.NewDescribeUHostInstanceRequest()
 	req.UHostIds = []string{}
-	resp, err := s.uapi.UHostClient().DescribeUHostInstance(req)
+	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
 		klog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
 		return instanceId, nil
@@ -173,7 +177,12 @@ func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
 }
 
 func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err error) {
-	req := s.uapi.VPCClient().NewAllocateSecondaryIpRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = ucloud.String(s.hostMacAddr)
 	ObjectId, err := s.getObjectIDforSecondaryIp()
 	if err != nil {
@@ -185,7 +194,7 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 
 	for i := 0; i < number; i++ {
-		resp, err := s.uapi.VPCClient().AllocateSecondaryIp(req)
+		resp, err := cli.AllocateSecondaryIp(req)
 		if err != nil {
 			if resp != nil && resp.GetRetCode() == UAPIErrorSubnetNotEnough {
 				return ips, ErrOutOfIP
@@ -217,7 +226,12 @@ func (s *ipamServer) checkIPConflict(ip string) error {
 }
 
 func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo *vpc.IpInfo, err error) {
-	req := s.uapi.VPCClient().NewAllocateSecondaryIpRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = ucloud.String(s.hostMacAddr)
 	req.Ip = ucloud.String(ip) //指定IP创建
 	ObjectId, err := s.getObjectIDforSecondaryIp()
@@ -229,7 +243,7 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	req.SubnetId = ucloud.String(subnet)
 
-	resp, err := s.uapi.VPCClient().AllocateSecondaryIp(req)
+	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
 		klog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
 	}
@@ -238,13 +252,17 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 }
 
 func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, error) {
-	client := s.uapi.VPCClient()
-	req := client.NewDescribeSecondaryIpRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewDescribeSecondaryIpRequest()
 
 	req.Ip = ucloud.String(ip)
 	req.SubnetId = ucloud.String(subnetId)
 	req.VPCId = ucloud.String(s.uapi.VPCID())
-	resp, err := s.uapi.VPCClient().DescribeSecondaryIp(req)
+	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
 		klog.Errorf("Describe secondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
 		return nil, err
@@ -257,24 +275,34 @@ func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, 
 }
 
 func (s *ipamServer) uapiMoveSecondaryIPMac(ip, prevMac, dstMac, subnetId string) error {
-	req := s.uapi.VPCClient().NewMoveSecondaryIPMacRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewMoveSecondaryIPMacRequest()
 	req.Ip = ucloud.String(ip)
 	req.NewMac = ucloud.String(dstMac)
 	req.OldMac = ucloud.String(prevMac)
 	req.SubnetId = ucloud.String(subnetId)
-	_, err := s.uapi.VPCClient().MoveSecondaryIPMac(req)
+	_, err = cli.MoveSecondaryIPMac(req)
 
 	return err
 }
 
 func (s *ipamServer) checkSecondaryIpExist(ip, mac string) (bool, error) {
-	req := s.uapi.VPCClient().NewDescribeSecondaryIpRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return false, err
+	}
+
+	req := cli.NewDescribeSecondaryIpRequest()
 	req.Ip = ucloud.String(ip)
 	req.Mac = ucloud.String(mac)
 	req.Zone = ucloud.String(s.uapi.AvailabilityZone())
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
-	resp, err := s.uapi.VPCClient().DescribeSecondaryIp(req)
+	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
 		klog.Errorf("DescribeSecondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
 		return false, err
@@ -295,7 +323,12 @@ func (s *ipamServer) uapiDeleteSecondaryIp(ip string) error {
 		return nil
 	}
 
-	req := s.uapi.VPCClient().NewDeleteSecondaryIpRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewDeleteSecondaryIpRequest()
 	req.Zone = ucloud.String(s.zoneId)
 	req.Mac = ucloud.String(s.hostMacAddr)
 	req.Ip = ucloud.String(ip)
@@ -303,7 +336,7 @@ func (s *ipamServer) uapiDeleteSecondaryIp(ip string) error {
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 
-	resp, err := s.uapi.VPCClient().DeleteSecondaryIp(req)
+	resp, err := cli.DeleteSecondaryIp(req)
 	if err == nil {
 		klog.Infof("Secondary Ip %v deleted by unetwork api service", ip)
 	}
@@ -315,10 +348,15 @@ func (s *ipamServer) uapiDeleteSecondaryIp(ip string) error {
 }
 
 func (s *ipamServer) uapiDescribeFirewall(firewallId string) (*unet.FirewallDataSet, error) {
-	req := s.uapi.UNetClient().NewDescribeFirewallRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewDescribeFirewallRequest()
 	req.FWId = ucloud.String(firewallId)
 
-	resp, err := s.uapi.UNetClient().DescribeFirewall(req)
+	resp, err := cli.DescribeFirewall(req)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +367,12 @@ func (s *ipamServer) uapiDescribeFirewall(firewallId string) (*unet.FirewallData
 }
 
 func (s *ipamServer) uapiCreateUNI(pod *v1.Pod, cfg *EIPCfg) (string, error) {
-	req := s.uapi.VPCClient().NewCreateNetworkInterfaceRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return "", err
+	}
+
+	req := cli.NewCreateNetworkInterfaceRequest()
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	req.Name = ucloud.String(getUNIorEIPName(pod))
 	if len(cfg.SecurityGroupId) > 0 {
@@ -341,7 +384,7 @@ func (s *ipamServer) uapiCreateUNI(pod *v1.Pod, cfg *EIPCfg) (string, error) {
 	}
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 	req.Remark = ucloud.String(getUNetRemark(string(pod.UID)))
-	resp, err := s.uapi.VPCClient().CreateNetworkInterface(req)
+	resp, err := cli.CreateNetworkInterface(req)
 	if err != nil {
 		return "", err
 	}
@@ -350,9 +393,14 @@ func (s *ipamServer) uapiCreateUNI(pod *v1.Pod, cfg *EIPCfg) (string, error) {
 }
 
 func (s *ipamServer) uapiDescribeUNI(uniId string) (*vpc.NetworkInterface, error) {
-	req := s.uapi.VPCClient().NewDescribeNetworkInterfaceRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewDescribeNetworkInterfaceRequest()
 	req.InterfaceId = []string{uniId}
-	resp, err := s.uapi.VPCClient().DescribeNetworkInterface(req)
+	resp, err := cli.DescribeNetworkInterface(req)
 	if err != nil {
 		klog.Errorf("DescribeNetworkInterface %s failed, request id %s %v", uniId, resp.GetRequestUUID(), err)
 		return nil, err
@@ -364,26 +412,41 @@ func (s *ipamServer) uapiDescribeUNI(uniId string) (*vpc.NetworkInterface, error
 }
 
 func (s *ipamServer) uapiAttachUNI(uhostId, uniId string) error {
-	req := s.uapi.VPCClient().NewAttachNetworkInterfaceRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewAttachNetworkInterfaceRequest()
 	req.InterfaceId = ucloud.String(uniId)
 	req.InstanceId = ucloud.String(uhostId)
-	_, err := s.uapi.VPCClient().AttachNetworkInterface(req)
+	_, err = cli.AttachNetworkInterface(req)
 	return err
 }
 
 func (s *ipamServer) uapiDetachUNI(uhostId, uniId string) error {
-	req := s.uapi.VPCClient().NewDetachNetworkInterfaceRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewDetachNetworkInterfaceRequest()
 	req.InstanceId = ucloud.String(uhostId)
 	req.InterfaceId = ucloud.String(uniId)
-	_, err := s.uapi.VPCClient().DetachNetworkInterface(req)
+	_, err = cli.DetachNetworkInterface(req)
 
 	return err
 }
 
 func (s *ipamServer) uapiDeleteUNI(uniId string) error {
-	req := s.uapi.VPCClient().NewDeleteNetworkInterfaceRequest()
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewDeleteNetworkInterfaceRequest()
 	req.InterfaceId = ucloud.String(uniId)
-	_, err := s.uapi.VPCClient().DeleteNetworkInterface(req)
+	_, err = cli.DeleteNetworkInterface(req)
 	return err
 }
 
@@ -396,11 +459,16 @@ func getUNetRemark(uid string) string {
 }
 
 func (s *ipamServer) uapiDescribeEIP(eipId string) (*unet.UnetEIPSet, error) {
-	req := s.uapi.UNetClient().NewDescribeEIPRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewDescribeEIPRequest()
 	req.EIPIds = []string{eipId}
 	req.Limit = ucloud.Int(1)
 	req.Offset = ucloud.Int(0)
-	resp, err := s.uapi.UNetClient().DescribeEIP(req)
+	resp, err := cli.DescribeEIP(req)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +491,12 @@ func getUNIorEIPName(pod *v1.Pod) (name string) {
 }
 
 func (s *ipamServer) uapiAllocateEIP(pod *v1.Pod, cfg *EIPCfg) (*unet.UnetAllocateEIPSet, error) {
-	req := s.uapi.UNetClient().NewAllocateEIPRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewAllocateEIPRequest()
 	req.Bandwidth = ucloud.Int(cfg.Bandwidth)
 	req.Quantity = ucloud.Int(cfg.Quantity)
 	req.Name = ucloud.String(getUNIorEIPName(pod))
@@ -440,7 +513,7 @@ func (s *ipamServer) uapiAllocateEIP(pod *v1.Pod, cfg *EIPCfg) (*unet.UnetAlloca
 
 	req.Remark = ucloud.String(getUNetRemark(string(pod.UID)))
 
-	resp, err := s.uapi.UNetClient().AllocateEIP(req)
+	resp, err := cli.AllocateEIP(req)
 	if err != nil {
 		return nil, err
 	}
@@ -453,9 +526,14 @@ func (s *ipamServer) uapiAllocateEIP(pod *v1.Pod, cfg *EIPCfg) (*unet.UnetAlloca
 }
 
 func (s *ipamServer) uapiReleaseEIP(eipId string) error {
-	req := s.uapi.UNetClient().NewReleaseEIPRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewReleaseEIPRequest()
 	req.EIPId = ucloud.String(eipId)
-	_, err := s.uapi.UNetClient().ReleaseEIP(req)
+	_, err = cli.ReleaseEIP(req)
 	return err
 }
 
@@ -484,32 +562,47 @@ func (s *ipamServer) uapiBindEIPForUNI(eipId, resId string) error {
 		}
 	}
 
-	req := s.uapi.UNetClient().NewBindEIPRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewBindEIPRequest()
 	req.EIPId = ucloud.String(eipId)
 	req.ResourceType = ucloud.String(ResourceTypeUNI)
 	req.ResourceId = ucloud.String(resId)
-	_, err = s.uapi.UNetClient().BindEIP(req)
+	_, err = cli.BindEIP(req)
 	return err
 }
 
 func (s *ipamServer) uapiUnbindEIP(eipId, resId, resType string) error {
-	req := s.uapi.UNetClient().NewUnBindEIPRequest()
+	cli, err := s.uapi.UNetClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewUnBindEIPRequest()
 	req.EIPId = ucloud.String(eipId)
 	req.ResourceType = ucloud.String(resType)
 	req.ResourceId = ucloud.String(resId)
-	_, err := s.uapi.UNetClient().UnBindEIP(req)
+	_, err = cli.UnBindEIP(req)
 	return err
 }
 
 func (s *ipamServer) uapiListUK8SCluster() (*uk8s.ClusterSet, error) {
+	cli, err := s.uapi.UK8SClient()
+	if err != nil {
+		return nil, err
+	}
+
 	clusterId := os.Getenv("UCLOUD_UK8S_CLUSTER_ID")
 	if len(clusterId) == 0 {
 		return nil, fmt.Errorf("cannot get cluster id by environment var UCLOUD_REGION_ID")
 	}
 
-	req := s.uapi.UK8SClient().NewListUK8SClusterV2Request()
+	req := cli.NewListUK8SClusterV2Request()
 	req.ClusterId = ucloud.String(clusterId)
-	resp, err := s.uapi.UK8SClient().ListUK8SClusterV2(req)
+	resp, err := cli.ListUK8SClusterV2(req)
 	if err != nil {
 		return nil, err
 	}

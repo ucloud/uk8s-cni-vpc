@@ -149,17 +149,22 @@ func vipCheckAndClean() {
 }
 
 func releaseVPCIp(vpcip v1beta1.VpcIpClaim) error {
-	uApi, err := uapi.NewClient()
+	uapi, err := uapi.NewClient()
 	if err != nil {
 		return nil
 	}
-	req := uApi.VPCClient().NewDeleteSecondaryIpRequest()
+	cli, err := uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewDeleteSecondaryIpRequest()
 	req.Zone = ucloud.String(vpcip.Status.Zone)
 	req.Mac = ucloud.String(vpcip.Status.Mac)
 	req.Ip = ucloud.String(vpcip.Spec.Ip)
 	req.VPCId = ucloud.String(vpcip.Spec.VpcId)
 	req.SubnetId = ucloud.String(vpcip.Spec.SubnetId)
-	resp, err := uApi.VPCClient().DeleteSecondaryIp(req)
+	resp, err := cli.DeleteSecondaryIp(req)
 	if err == nil {
 		klog.Infof("Secondary ip %v deleted by unetwork api service", vpcip.Spec.Ip)
 	}

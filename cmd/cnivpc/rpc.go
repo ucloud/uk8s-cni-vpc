@@ -117,23 +117,28 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 		return nil, err
 	}
 
-	uApi, err := uapi.NewClient()
+	uapi, err := uapi.NewClient()
 	if err != nil {
 		return nil, err
 	}
-	req := uApi.VPCClient().NewAllocateSecondaryIpRequest()
+	cli, err := uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = &macAddr
 	ObjectId, err := getObjectIDforSecondaryIP()
 	if err != nil {
-		ObjectId = uApi.InstanceID()
+		ObjectId = uapi.InstanceID()
 	}
 
 	req.ObjectId = ucloud.String(ObjectId)
-	req.Zone = ucloud.String(uApi.AvailabilityZone())
-	req.VPCId = ucloud.String(uApi.VPCID())
-	req.SubnetId = ucloud.String(uApi.SubnetID())
+	req.Zone = ucloud.String(uapi.AvailabilityZone())
+	req.VPCId = ucloud.String(uapi.VPCID())
+	req.SubnetId = ucloud.String(uapi.SubnetID())
 
-	resp, err := uApi.VPCClient().AllocateSecondaryIp(req)
+	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
 		log.Errorf("Failed to AllocateSecondaryIp for unetwork api service, %v", err)
 		return nil, err
@@ -156,17 +161,22 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 }
 
 func checkSecondaryIPExist(ip, mac string) (bool, error) {
-	uApi, err := uapi.NewClient()
+	uapi, err := uapi.NewClient()
 	if err != nil {
 		return false, err
 	}
-	req := uApi.VPCClient().NewDescribeSecondaryIpRequest()
+	cli, err := uapi.VPCClient()
+	if err != nil {
+		return false, err
+	}
+
+	req := cli.NewDescribeSecondaryIpRequest()
 	req.Ip = ucloud.String(ip)
 	req.Mac = ucloud.String(mac)
-	req.Zone = ucloud.String(uApi.AvailabilityZone())
-	req.VPCId = ucloud.String(uApi.VPCID())
-	req.SubnetId = ucloud.String(uApi.SubnetID())
-	resp, err := uApi.VPCClient().DescribeSecondaryIp(req)
+	req.Zone = ucloud.String(uapi.AvailabilityZone())
+	req.VPCId = ucloud.String(uapi.VPCID())
+	req.SubnetId = ucloud.String(uapi.SubnetID())
+	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
 		log.Errorf("DescribeSecondaryIp %s failed, %v", ip, err)
 		return false, err
@@ -196,18 +206,23 @@ func instanceType(resource string) string {
 }
 
 func getObjectIDforSecondaryIP() (string, error) {
-	uApi, err := uapi.NewClient()
+	uapi, err := uapi.NewClient()
 	if err != nil {
 		return "", err
 	}
-	instanceId := uApi.InstanceID()
+	instanceId := uapi.InstanceID()
 	if instanceType(instanceId) != instanceTypeUHost {
 		return instanceId, nil
 	}
 
-	req := uApi.UHostClient().NewDescribeUHostInstanceRequest()
+	cli, err := uapi.UHostClient()
+	if err != nil {
+		return "", err
+	}
+
+	req := cli.NewDescribeUHostInstanceRequest()
 	req.UHostIds = []string{}
-	resp, err := uApi.UHostClient().DescribeUHostInstance(req)
+	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
 		log.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
 		return instanceId, nil
@@ -244,24 +259,29 @@ func deallocateSecondaryIP(podName, podNS, podInfraContainerID string, pNet *rpc
 	}
 
 	// Create UCloud api client config
-	uApi, err := uapi.NewClient()
+	uapi, err := uapi.NewClient()
 	if err != nil {
 		return err
 	}
-	req := uApi.VPCClient().NewDeleteSecondaryIpRequest()
-	objectId, err := getObjectIDforSecondaryIP()
+	cli, err := uapi.VPCClient()
 	if err != nil {
-		objectId = uApi.InstanceID()
+		return err
 	}
 
-	req.Zone = ucloud.String(uApi.AvailabilityZone())
+	req := cli.NewDeleteSecondaryIpRequest()
+	objectId, err := getObjectIDforSecondaryIP()
+	if err != nil {
+		objectId = uapi.InstanceID()
+	}
+
+	req.Zone = ucloud.String(uapi.AvailabilityZone())
 	req.Mac = ucloud.String(pNet.MacAddress)
 	req.Ip = ucloud.String(pNet.VPCIP)
 	req.ObjectId = ucloud.String(objectId)
 	req.VPCId = ucloud.String(pNet.VPCID)
 	req.SubnetId = ucloud.String(pNet.SubnetID)
 
-	resp, err := uApi.VPCClient().DeleteSecondaryIp(req)
+	resp, err := cli.DeleteSecondaryIp(req)
 	if err != nil {
 		if resp.RetCode == UAPIErrorIPNotExst {
 			log.Warningf("Secondary ip %s has been deleted before", pNet.VPCIP)
