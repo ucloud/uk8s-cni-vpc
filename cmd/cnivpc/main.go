@@ -81,16 +81,22 @@ func cmdVersion(args *skel.CmdArgs) error {
 	return nil
 }
 
+func cmdArgsString(args *skel.CmdArgs) string {
+	stdin := string(args.StdinData)
+	stdin = strings.ReplaceAll(stdin, "\n", "")
+	return fmt.Sprintf("container: %s, netns: %s, ifname: %s, args: %s, path: %s, stdin: %s",
+		args.ContainerID, args.Netns, args.IfName, args.Args, args.Path, stdin)
+}
+
 // cmdAdd is called for ADD requests
 func cmdAdd(args *skel.CmdArgs) error {
-	log.Infof("cmdAdd, stdin data: %s", string(args.StdinData))
+	log.Infof("cmdAdd, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
 		log.Errorf("Failed to parse cmdAdd config: %v", err)
 		return err
 	}
 
-	log.Infof("Now begin cnivpc(%d) cmd add, args %+v", os.Getpid(), args)
 	podArgs := loadSandboxArgs(args.Args)
 	podName := podArgs["K8S_POD_NAME"]
 	podNS := podArgs["K8S_POD_NAMESPACE"]
@@ -183,7 +189,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 // cmdDel is called for DELETE requests
 func cmdDel(args *skel.CmdArgs) error {
-	log.Infof("cmdDel, stdin data: %s", string(args.StdinData))
+	log.Infof("cmdDel, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
 		log.Errorf("Failed to parse cmdDel config: %v", err)

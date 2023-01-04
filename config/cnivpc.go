@@ -19,8 +19,6 @@ import (
 	"net"
 	"os"
 
-	vs "github.com/ucloud/uk8s-cni-vpc/pkg/version"
-
 	"github.com/containernetworking/cni/pkg/types"
 )
 
@@ -60,9 +58,6 @@ func ParsePlugin(data []byte) (*Plugin, error) {
 	if err := json.Unmarshal(data, &cni); err != nil {
 		return nil, fmt.Errorf("failed to parse cnivpc config: %v", err)
 	}
-	cni.Name = "uk8s-cni-vpc"
-	cni.Type = "cnivpc"
-	cni.CNIVersion = vs.CNIVersion
 	return &cni, nil
 }
 
