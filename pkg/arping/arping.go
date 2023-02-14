@@ -15,10 +15,10 @@ package arping
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net"
-	"strings"
 	"syscall"
 	"time"
 )
