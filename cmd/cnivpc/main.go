@@ -94,7 +94,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
 		log.Errorf("Failed to parse cmdAdd config: %v", err)
-		return err
+		return fmt.Errorf("failed to parse cmdadd config: %v", err)
 	}
 
 	podArgs := loadSandboxArgs(args.Args)
@@ -108,7 +108,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	pNet, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
 	if err != nil {
 		log.Errorf("Cannot assign a vpc ip for pod %s/%s, %v", podName, podNS, err)
-		return err
+		return fmt.Errorf("failed to assign ip: %v", err)
 	}
 
 	rollbackReleaseIP := func() {
@@ -126,13 +126,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if err != nil {
 			log.Errorf("Cannot enable %s proxy arp:%v", masterInterface, err)
 			rollbackReleaseIP()
-			return err
+			return fmt.Errorf("failed to enable proxy arp: %v", err)
 		}
 		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), getMasterInterface())
 		if err != nil {
 			log.Errorf("Failed to detect conflict for ip %v of pod %v, err %v", pNet.VPCIP, podName, err)
 			rollbackReleaseIP()
-			return err
+			return fmt.Errorf("failed to detect conflict: %v", err)
 		}
 		if conflict {
 			log.Errorf("IP %v is still in conflict after retrying for pod %v", pNet.VPCIP, podName)
@@ -147,7 +147,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if err != nil {
 			log.Errorf("Cannot setup pod veth network, %v", err)
 			rollbackReleaseIP()
-			return err
+			return fmt.Errorf("failed to setup veth network: %v", err)
 		}
 	}
 
@@ -156,7 +156,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		log.Errorf("Cannot set node port range network, %v", err)
 		rollbackReleaseIP()
-		return err
+		return fmt.Errorf("failed to set node port: %v", err)
 	}
 
 	result := &current.Result{}
@@ -194,7 +194,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// Fill result routes
 	log.Infof("[Result]: %+v", result)
 	conf.PrevResult = result
-	return portmap.CmdAdd(args, conf)
+	err = portmap.CmdAdd(args, conf)
+	if err != nil {
+		return fmt.Errorf("portmap add error: %v", err)
+	}
+	return nil
 }
 
 // cmdDel is called for DELETE requests
