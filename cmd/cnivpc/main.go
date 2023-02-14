@@ -111,6 +111,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
+	rollbackReleaseIP := func() {
+		err = releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		if err != nil {
+			log.Errorf("Failed to release ip %s after failure, ip might leak: %v", pNet.VPCIP, err)
+		}
+	}
+
 	releaseLock := lockfile.MustAcquire()
 	defer releaseLock()
 
@@ -118,15 +125,18 @@ func cmdAdd(args *skel.CmdArgs) error {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
 			log.Errorf("Cannot enable %s proxy arp:%v", masterInterface, err)
+			rollbackReleaseIP()
 			return err
 		}
 		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), getMasterInterface())
 		if err != nil {
 			log.Errorf("Failed to detect conflict for ip %v of pod %v, err %v", pNet.VPCIP, podName, err)
+			rollbackReleaseIP()
 			return err
 		}
 		if conflict {
 			log.Errorf("IP %v is still in conflict after retrying for pod %v", pNet.VPCIP, podName)
+			rollbackReleaseIP()
 			return IPConflictError
 		}
 	}
@@ -136,7 +146,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pNet)
 		if err != nil {
 			log.Errorf("Cannot setup pod veth network, %v", err)
-			releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+			rollbackReleaseIP()
 			return err
 		}
 	}
@@ -145,7 +155,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	err = setNodePortRange(podName, podNS, netNS, sandBoxId, pNet)
 	if err != nil {
 		log.Errorf("Cannot set node port range network, %v", err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		rollbackReleaseIP()
 		return err
 	}
 
