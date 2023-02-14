@@ -63,17 +63,17 @@ type result struct {
 // detectIpConflictWithGratuitousArp detect ip conflict according to rfc5227
 func detectIpConflictWithGratuitousArp(srcIP net.IP, ifaceName string) (bool, error) {
 	if err := validateIP(srcIP); err != nil {
-		return false, err
+		return false, fmt.Errorf("fail to validate ip: %w", err)
 	}
 
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("fail to get interface by name: %w", err)
 	}
 
 	sock, err := initialize(*iface)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("fail to initialize interface %v: %w", ifaceName, err)
 	}
 	defer sock.deinitialize()
 	// implement 2.1.1. section in rfc5227
@@ -110,7 +110,7 @@ func detectIpConflictWithGratuitousArp(srcIP net.IP, ifaceName string) (bool, er
 				dg, err := receiveGratuitousArpResponse(sock)
 				if err != nil {
 					if !strings.Contains(err.Error(), "resource temporarily unavailable") {
-						resultChan <- result{false, err}
+						resultChan <- result{false, fmt.Errorf("fail to receive gratuitous arp response: %w", err)}
 						return
 					}
 				} else {
