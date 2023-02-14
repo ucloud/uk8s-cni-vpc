@@ -109,7 +109,7 @@ func detectIpConflictWithGratuitousArp(srcIP net.IP, ifaceName string) (bool, er
 			default:
 				dg, err := receiveGratuitousArpResponse(sock)
 				if err != nil {
-					if !strings.Contains(err.Error(), "resource temporarily unavailable") {
+					if !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EINTR) {
 						resultChan <- result{false, fmt.Errorf("fail to receive gratuitous arp response: %w", err)}
 						return
 					}
