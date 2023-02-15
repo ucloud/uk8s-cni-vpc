@@ -71,19 +71,26 @@ func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNe
 // if not, do this on myself.
 func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
-	if err != nil {
-		// Cannot establish gRPC unix domain connection to ipamd
-		ip, err := allocateSecondaryIP(podName, podNS, sandboxId)
-		return ip, false, err
+	if err == nil {
+		// There are two prerequisites for using ipamd:
+		// 1. The connection is successfully established, that is, Dial ok.
+		// 2. Check ipamd with ping request, it is in a healthy state.
+		defer conn.Close()
+		c := rpc.NewCNIIpamClient(conn)
+		if enabledIpamd(c) {
+			ip, err := allocateSecondaryIPFromIpamd(c, podName, podNS, netNS, sandboxId)
+			if err != nil {
+				return nil, false, fmt.Errorf("failed to call ipamd: %v", err)
+			}
+			return ip, true, nil
+		}
 	}
-	defer conn.Close()
-	c := rpc.NewCNIIpamClient(conn)
-	if enabledIpamd(c) {
-		ip, err := allocateSecondaryIPFromIpamd(c, podName, podNS, netNS, sandboxId)
-		return ip, true, err
-	}
+	// ipamd not available, directly call vpc to allocate IP
 	ip, err := allocateSecondaryIP(podName, podNS, sandboxId)
-	return ip, false, err
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to call vpc: %v", err)
+	}
+	return ip, false, nil
 }
 
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
@@ -114,16 +121,16 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 	// Get node master interface hardware address
 	macAddr, err := getNodeMacAddress(getMasterInterface())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get mac addr: %v", err)
 	}
 
 	uapi, err := uapi.NewClient()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to init uapi client: %v", err)
 	}
 	cli, err := uapi.VPCClient()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
 
 	req := cli.NewAllocateSecondaryIpRequest()
@@ -141,7 +148,7 @@ func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, err
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
 		log.Errorf("Failed to AllocateSecondaryIp for unetwork api service, %v", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
 	// Record PodNetwork Information in local storage
