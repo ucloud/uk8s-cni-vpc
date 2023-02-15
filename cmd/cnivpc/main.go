@@ -319,7 +319,7 @@ func getRoutes() (routes []*types.Route, err error) {
 
 // Process exit itself in case of hang for a long time
 func tickSuicide(done chan bool) {
-	tick := time.NewTimer(180 * time.Second)
+	tick := time.NewTimer(time.Minute * 5)
 	select {
 	case <-tick.C:
 		{

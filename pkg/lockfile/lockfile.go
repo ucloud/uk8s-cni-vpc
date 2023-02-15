@@ -15,6 +15,7 @@ package lockfile
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,6 +24,14 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/ucloud/go-lockfile"
 )
+
+func init() {
+	rand.Seed(time.Now().Unix())
+}
+
+func randInt(min, max int) int {
+	return rand.Intn(max-min) + min
+}
 
 func MustAcquire() func() {
 	lock, err := acquireLock()
@@ -33,26 +42,33 @@ func MustAcquire() func() {
 	}
 }
 
+const (
+	lockMaxWaitTime = time.Minute * 2
+
+	sleepMaxFactor = 20
+	sleepMinFactor = 30
+)
+
 func acquireLock() (*lockfile.Lockfile, error) {
 	lock := lockfile.New(filepath.Join(os.TempDir(), "cni-vpc-uk8s.lock"))
-	tries := 80000
-
+	timer := time.NewTimer(lockMaxWaitTime)
 	for {
-		tries--
-		if tries <= 0 {
-			return nil, fmt.Errorf("Lockfile not acquired, aborting")
-		}
+		select {
+		case <-timer.C:
+			return nil, fmt.Errorf("lockfile not acquired, aborting")
 
-		err := lock.TryLock()
-		if err == nil {
-			break
-		} else if err == lockfile.ErrBusy {
-			time.Sleep(30 * time.Millisecond)
-		} else {
-			return nil, err
+		default:
+			err := lock.TryLock()
+			if err == nil {
+				break
+			} else if err == lockfile.ErrBusy {
+				sleepFactor := randInt(sleepMinFactor, sleepMaxFactor)
+				time.Sleep(time.Duration(sleepFactor) * time.Millisecond)
+			} else {
+				return nil, err
+			}
 		}
 	}
-	return lock, nil
 }
 
 func handleErr(err error) {
