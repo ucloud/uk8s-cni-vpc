@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  release:
+    if: contains(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Set up go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.19.5
+
+    - name: Build CNI
+      run: make build
+
+    - name: Build ipamctl
+      run: make build-ipamctl
+
+    - name: Pack
+      run: zip -r cnivpc.zip ./bin LLICENSE
+
+    - name: Create release
+      uses: softprops/action-gh-release@v1
+      with:
+        token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        files: |
+          cnivpc.zip
