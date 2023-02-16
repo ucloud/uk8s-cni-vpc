@@ -90,6 +90,9 @@ func cmdArgsString(args *skel.CmdArgs) string {
 
 // cmdAdd is called for ADD requests
 func cmdAdd(args *skel.CmdArgs) error {
+	releaseLock := lockfile.MustAcquire()
+	defer releaseLock()
+
 	log.Infof("cmdAdd, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
@@ -117,9 +120,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 			log.Errorf("Failed to release ip %s after failure, ip might leak: %v", pNet.VPCIP, err)
 		}
 	}
-
-	releaseLock := lockfile.MustAcquire()
-	defer releaseLock()
 
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
@@ -203,6 +203,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 // cmdDel is called for DELETE requests
 func cmdDel(args *skel.CmdArgs) error {
+	releaseLock := lockfile.MustAcquire()
+	defer releaseLock()
+
 	log.Infof("cmdDel, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
@@ -234,8 +237,6 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 	}
 
-	releaseLock := lockfile.MustAcquire()
-	defer releaseLock()
 	err = portmap.CmdDel(args, conf)
 	if err != nil {
 		return err
