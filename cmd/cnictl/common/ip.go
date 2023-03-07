@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
@@ -17,32 +18,60 @@ type IPSummary struct {
 }
 
 func SummarizeIP() (*IPSummary, error) {
-	allocated, err := ListSecondaryIP()
-	if err != nil {
-		return nil, err
-	}
-	allocatedIPs := make([]string, len(allocated))
-	for i, ip := range allocated {
-		allocatedIPs[i] = ip.IP
-	}
+	var wg sync.WaitGroup
+	wg.Add(3)
+	errChan := make(chan error, 3)
 
-	pods, err := ListPodSecondaryIPs()
-	if err != nil {
-		return nil, err
-	}
+	var allocated []*SecondaryIP
+	var allocatedIPs []string
+	go func() {
+		defer wg.Done()
+		var err error
+		allocated, err = ListSecondaryIP()
+		if err != nil {
+			errChan <- err
+		}
+		allocatedIPs = make([]string, len(allocated))
+		for i, ip := range allocated {
+			allocatedIPs[i] = ip.IP
+		}
+	}()
+
+	var pods []*PodSecondaryIP
+	go func() {
+		defer wg.Done()
+		var err error
+		pods, err = ListPodSecondaryIPs()
+		if err != nil {
+			errChan <- err
+		}
+	}()
 
 	node := Node()
 	var pool []string
-	if node.IpamdEnable {
-		ipamdClient, err := IpamdClient()
-		if err != nil {
-			return nil, fmt.Errorf("failed to init ipamd client: %v", err)
+	go func() {
+		defer wg.Done()
+		if node.IpamdEnable {
+			ipamdClient, err := IpamdClient()
+			if err != nil {
+				errChan <- fmt.Errorf("failed to init ipamd client: %v", err)
+				return
+			}
+			resp, err := ipamdClient.Status(context.Background(), &rpc.StatusRequest{})
+			if err != nil {
+				errChan <- fmt.Errorf("failed to request ipamd status: %v", err)
+				return
+			}
+			pool = resp.Pool
 		}
-		resp, err := ipamdClient.Status(context.Background(), &rpc.StatusRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to request ipamd status: %v", err)
-		}
-		pool = resp.Pool
+	}()
+
+	wg.Wait()
+	close(errChan)
+
+	err := <-errChan
+	if err != nil {
+		return nil, err
 	}
 
 	unused := make(map[string]struct{}, len(allocatedIPs))

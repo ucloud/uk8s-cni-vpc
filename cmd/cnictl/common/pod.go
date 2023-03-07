@@ -11,6 +11,7 @@ import (
 
 type PodSecondaryIP struct {
 	Name         string   `json:"name"`
+	Namespace    string   `json:"namespace"`
 	SecondaryIPs []string `json:"secondary_ips"`
 }
 
@@ -30,6 +31,7 @@ func ListPodSecondaryIPs() ([]*PodSecondaryIP, error) {
 		podIPs := pod.Status.PodIPs
 		item := &PodSecondaryIP{
 			Name:         pod.Name,
+			Namespace:    pod.Namespace,
 			SecondaryIPs: make([]string, 0, len(podIPs)),
 		}
 		for _, podIP := range podIPs {

@@ -20,7 +20,7 @@ export GOARCH=$(TARGETARCH)
 DOCKER_DEPLOY_BUCKET=uhub.service.ucloud.cn/uk8s
 DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
 
-DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),build-$(COMMIT_ID_SHORT))
+DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),dev-$(COMMIT_ID_SHORT))
 DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
@@ -30,7 +30,7 @@ CNI_VPC_BUILD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-build:$(DOCKER_LABEL)
 DOCKER_CMD:=$(shell if docker ps 2> /dev/null; then echo "docker"; else echo "sudo docker"; fi)
 CWD:=$(shell pwd)
 
-DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.4)
+DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.6)
 
 all: build-cni build-ipamd build-cnictl build-vip-controller
 
@@ -53,6 +53,21 @@ build-vip-controller:
 .PHONY: docker-build
 docker-build:
 	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make
+
+.PHONY: docker-base
+docker-base:
+	$(DOCKER_CMD) build -t $(DOCKER_BASE_IMAGE) -f dockerfiles/base/Dockerfile .
+	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
+
+.PHONY: docker-ipamd
+docker-ipamd:
+	$(DOCKER_CMD) build -t $(IPAMD_IMAGE) -f dockerfiles/ipamd/Dockerfile .
+	@echo "Successfully built image: ${IPAMD_IMAGE}"
+
+.PHONY: docker-vip-controller
+docker-vip-controller:
+	$(DOCKER_CMD) build -t $(VIP_CONTROLLER_IMAGE) -f dockerfiles/vip-controller/Dockerfile .
+	@echo "Successfully built image: ${VIP_CONTROLLER_IMAGE}"
 
 .PHONY: fmt
 fmt:
