@@ -214,3 +214,26 @@ func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*r
 		IP:   ip,
 	}, nil
 }
+
+func (s *ipamServer) Status(ctx context.Context, req *rpc.StatusRequest) (*rpc.StatusResponse, error) {
+	items, err := s.pool.List()
+	if err != nil {
+		return &rpc.StatusResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read db: %v", err))
+	}
+
+	ips := make([]string, len(items))
+	for i, item := range items {
+		ips[i] = item.VPCIP
+	}
+
+	return &rpc.StatusResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
+		Pool: ips,
+	}, nil
+}
+
+func (s *ipamServer) Clean(ctx context.Context, req *rpc.CleanRequest) (*rpc.CleanResponse, error) {
+	return &rpc.CleanResponse{}, nil
+}

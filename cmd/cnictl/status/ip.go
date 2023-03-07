@@ -16,18 +16,20 @@ var ip = &cobra.Command{
 	Short: "Show ip status",
 
 	RunE: func(_ *cobra.Command, _ []string) error {
-		podList, err := common.ListPods()
+		sum, err := common.SummarizeIP()
 		if err != nil {
 			return err
 		}
 
-		allocatedIPs, err := common.ListSecondaryIP()
-		if err != nil {
-			return err
+		if all {
+			common.ShowObject(sum)
+			return nil
 		}
 
-		fmt.Printf("Allocated: %d\n", len(allocatedIPs))
-		fmt.Printf("Pods:      %d\n", len(podList.Items))
+		fmt.Printf("Allocated: %d\n", len(sum.Allocated))
+		fmt.Printf("Pods:      %d\n", sum.PodIPCount)
+		fmt.Printf("Pool:      %d\n", len(sum.Pool))
+		fmt.Printf("Unused:    %d\n", len(sum.Unused))
 
 		return nil
 	},

@@ -117,14 +117,14 @@ func copyFile(dstPath, srcPath string) error {
 }
 
 type NodeInfo struct {
-	Name        string
-	MAC         string
-	Region      string
-	APIEndpoint string
-	ProjectID   string
-	VPCID       string
-	SubnetID    string
-	IpamdEnable bool
+	Name        string `json:"name"`
+	MAC         string `json:"mac"`
+	Region      string `json:"region"`
+	APIEndpoint string `json:"api_endpoint"`
+	ProjectID   string `json:"project_id"`
+	VPCID       string `json:"vpc_id"`
+	SubnetID    string `json:"subnet_id"`
+	IpamdEnable bool   `json:"ipamd_enable"`
 }
 
 var (
@@ -205,7 +205,11 @@ func getNodeName() (string, string, error) {
 			if len(addrs) != 1 {
 				return "", "", fmt.Errorf("invalid iface addr count, expect 1, found %d", len(addrs))
 			}
-			return addrs[0].String(), iface.HardwareAddr.String(), nil
+			ip, _, err := net.ParseCIDR(addrs[0].String())
+			if err != nil {
+				return "", "", fmt.Errorf("failed to parse CIDR: %v", err)
+			}
+			return ip.String(), iface.HardwareAddr.String(), nil
 		}
 	}
 	return "", "", fmt.Errorf("cannot find network interface %s", nodeInterfaceName)

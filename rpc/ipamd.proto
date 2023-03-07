@@ -12,6 +12,9 @@ service CNIIpam {
 	rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
 
 	rpc BorrowIP(BorrowIPRequest) returns (BorrowIPResponse) {}
+
+	rpc Status(StatusRequest) returns (StatusResponse) {}
+	rpc Clean(CleanRequest) returns (CleanResponse) {}
 }
 
 message PingRequest {}
@@ -96,6 +99,19 @@ message BorrowIPRequest {
 message BorrowIPResponse {
 	CNIErrorCode Code = 1;
 	PodNetwork IP = 2;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+	CNIErrorCode Code = 1;
+	repeated string pool = 2;
+}
+
+message CleanRequest {}
+
+message CleanResponse {
+	int32 Count = 1;
 }
 
 enum CNIErrorCode {
