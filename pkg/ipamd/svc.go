@@ -35,7 +35,8 @@ import (
 )
 
 const (
-	IpamdServiceSocket    = "/run/cni-vpc-ipamd.sock"
+	SocketPath            = "/run/cni-vpc-ipamd.sock"
+	SocketTarget          = "unix:" + SocketPath
 	UHostMasterInterface  = "eth0"
 	UPHostMasterInterface = "net1"
 	CNIVpcDbName          = "cni-vpc-network"
@@ -109,8 +110,8 @@ func Start() error {
 
 	go cleanUpOnTermination(server, ipd)
 
-	if pathExist(IpamdServiceSocket) {
-		os.Remove(IpamdServiceSocket)
+	if pathExist(SocketPath) {
+		os.Remove(SocketPath)
 	}
 
 	go ipd.ipPoolWatermarkManager()
@@ -127,7 +128,7 @@ func Start() error {
 		}()
 	}
 
-	socketListenr, err := net.Listen("unix", IpamdServiceSocket)
+	socketListenr, err := net.Listen("unix", SocketPath)
 	klog.Flush()
 	if err != nil {
 		klog.Fatalf("listen socket: %v", err)
@@ -140,7 +141,7 @@ func Start() error {
 
 	errChan := make(chan error)
 	go func() {
-		klog.Infof("Start to serve socket: %s", IpamdServiceSocket)
+		klog.Infof("Start to serve socket: %s", SocketPath)
 		err = server.Serve(socketListenr)
 		errChan <- err
 	}()

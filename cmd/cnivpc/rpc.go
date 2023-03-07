@@ -20,10 +20,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -33,9 +33,8 @@ import (
 )
 
 const (
-	IpamdServiceSocket = "unix:" + ipamd.IpamdServiceSocket
-	CNIVpcDbName       = "cni-vpc-network"
-	storageFile        = "/opt/cni/networkbolt.db"
+	CNIVpcDbName = "cni-vpc-network"
+	storageFile  = "/opt/cni/networkbolt.db"
 
 	instanceTypeCube    = "Cube"
 	instanceTypeUHost   = "UHost"
@@ -70,7 +69,7 @@ func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNe
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
 func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(ipamd.SocketTarget, grpc.WithInsecure())
 	if err == nil {
 		// There are two prerequisites for using ipamd:
 		// 1. The connection is successfully established, that is, Dial ok.
@@ -96,7 +95,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
 // if not, do this on myself.
 func releasePodIp(podName, podNS, netNS, sandboxId string, pNet *rpc.PodNetwork) error {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(ipamd.SocketTarget, grpc.WithInsecure())
 	if err != nil {
 		// Cannot establish gRPC unix domain connection to ipamd
 		// If pod has dedicated uni, leave this to ipamd when it is reinstalled
@@ -355,7 +354,7 @@ func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, netNS, 
 // If there is ipamd daemon service, use ipamd to add PodNetworkRecord;
 // if not, do this on myself.
 func addPodNetworkRecord(podName, podNS, sandBoxID, netNS string, pNet *rpc.PodNetwork) error {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(ipamd.SocketTarget, grpc.WithInsecure())
 	if err != nil {
 		return addPodNetworkRecordLocal(podName, podNS, sandBoxID, netNS, pNet)
 	}
@@ -401,7 +400,7 @@ func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 // If there is ipamd daemon service, use ipamd to delete NetworkRecord;
 // if not, do this on myself.
 func delPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(ipamd.SocketTarget, grpc.WithInsecure())
 	if err != nil {
 		return delPodNetworkRecordLocal(podName, podNS, sandBoxID, pNet)
 	}
@@ -451,7 +450,7 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 // If there is ipamd daemon service, use ipamd to get PodNetworkRecord;
 // if not, do this on myself.
 func getPodNetworkRecord(podName, podNS, sandBoxID string) (*rpc.PodNetwork, error) {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(ipamd.SocketTarget, grpc.WithInsecure())
 	if err != nil {
 		return getPodNetworkRecordLocal(podName, podNS, sandBoxID)
 	}

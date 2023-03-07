@@ -27,67 +27,34 @@ IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
 VIP_CONTROLLER_IMAGE:=$(DOCKER_BUCKET)/vip-controller:$(DOCKER_LABEL)
 CNI_VPC_BUILD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-build:$(DOCKER_LABEL)
 
-DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
+DOCKER_CMD:=$(shell if docker ps 2> /dev/null; then echo "docker"; else echo "sudo docker"; fi)
+CWD:=$(shell pwd)
 
 DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.19.4)
 
-.PHONY: docker-build docker-deploy docker-build-cni docker-base-image deploy-docker-base-image \
-		check-fmt fmt install-check check version clean generate-grpc \
-		build build-cni build-ipamd build-ipamctl build-vip-controller \
-		install-grpc generate-k8s generate-grpc
+all: build-cni build-ipamd build-cnictl build-vip-controller
 
-all: build
-
-build: build-cni build-ipamd build-ipamctl build-vip-controller
-
+.PHONY: build-cni
 build-cni:
 	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
 
+.PHONY: build-ipamd
 build-ipamd:
 	go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
 
-build-ipamctl:
-	go build ${LDFLAGS} -o ./bin/ipamctl ./cmd/ipamctl
+.PHONY: build-cnictl
+build-cnictl:
+	go build ${LDFLAGS} -o ./bin/cnictl ./cmd/cnictl
 
+.PHONY: build-vip-controller
 build-vip-controller:
 	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
 
+.PHONY: docker-build
 docker-build:
-	${DOCKER_CMD} build -t ${IPAMD_IMAGE} -f dockerfiles/ipamd/Dockerfile .
-	${DOCKER_CMD} build -t ${VIP_CONTROLLER_IMAGE} -f dockerfiles/vip-controller/Dockerfile .
-	@echo "Successfully built image: ${IPAMD_IMAGE}"
-	@echo "Successfully built image: ${VIP_CONTROLLER_IMAGE}"
+	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make
 
-docker-deploy: docker-build
-	${DOCKER_CMD} push ${IPAMD_IMAGE}
-	${DOCKER_CMD} push ${VIP_CONTROLLER_IMAGE}
-	@echo "Successfully pushed image: ${IPAMD_IMAGE}"
-	@echo "Successfully pushed image: ${VIP_CONTROLLER_IMAGE}"
-
-# Build cnivpc binary in image, so that the glibc can match the production
-# environment.
-# If you build cnivpc binary in the latest Linux distribution (Such as Arch),
-# the binary might not be able to run in UK8S machine because the glibc version
-# in UK8S machine is very old.
-# we should use the image "uhub.service.ucloud.cn/wxyz/cni-vpc-base", it is based
-# on centos 7 (same as production), and glibc version is properly.
-docker-build-cni:
-	${DOCKER_CMD} build -t ${CNI_VPC_BUILD_IMAGE} -f dockerfiles/cnivpc-build/Dockerfile .
-	@mkdir -p bin
-	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /cnivpc ./bin/cnivpc
-	@bash ./scripts/copy-from-docker-image.sh "${DOCKER_CMD}" "${CNI_VPC_BUILD_IMAGE}" /ipamctl ./bin/ipamctl
-ifdef NODE_IP
-	scp bin/docker/cnivpc root@${NODE_IP}:/opt/cni/bin/cnivpc
-endif
-
-docker-build-base-image:
-	${DOCKER_CMD} build -t ${DOCKER_BASE_IMAGE} -f dockerfiles/base/Dockerfile .
-	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
-
-docker-deploy-base-image: docker-base-image
-	${DOCKER_CMD} push ${DOCKER_BASE_IMAGE}
-	@echo "Successfully pushed ${DOCKER_BASE_IMAGE}"
-
+.PHONY: fmt
 fmt:
 	@command -v goimports >/dev/null || { echo "ERROR: goimports not installed"; exit 1; }
 	@exit $(shell find ./* \
@@ -95,15 +62,18 @@ fmt:
 	  -name '*.go' \
 	  -print0 | sort -z | xargs -0 -- goimports $(or $(FORMAT_FLAGS),-w) | wc -l | bc)
 
+.PHONY: check-fmt
 check-fmt:
 	@./scripts/check-fmt.sh
 
+.PHONY: install-check
 install-check:
 	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	@go install github.com/client9/misspell/cmd/misspell@latest
 	@go install github.com/gordonklaus/ineffassign@latest
 	@go install golang.org/x/tools/cmd/goimports@latest
 
+.PHONY: check
 check:
 	@echo "==> check ineffassign"
 	@ineffassign ./...
@@ -114,19 +84,24 @@ check:
 	@echo "==> go vet"
 	@go vet ./...
 
+.PHONY: version
 version:
 	@echo ${CNI_VERSION}
 
+.PHONY: clean
 clean:
 	@rm -rf ./bin
 
+.PHONY: install-grpc
 install-grpc:
 	@go install github.com/golang/protobuf/protoc-gen-go@latest
 
+.PHONY: generate-grpc
 generate-grpc:
 	@command -v protoc >/dev/null || { echo "ERROR: protoc not installed"; exit 1; }
 	@command -v protoc-gen-go >/dev/null || { echo "ERROR: protoc-gen-go not installed"; exit 1; }
 	@protoc --go_out=plugins=grpc:./rpc ./rpc/ipamd.proto
 
+.PHONY: generate-k8s
 generate-k8s:
 	@bash hack/update-codegen.sh
