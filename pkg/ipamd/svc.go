@@ -37,7 +37,7 @@ import (
 const (
 	IpamdServiceSocket    = "/run/cni-vpc-ipamd.sock"
 	UHostMasterInterface  = "eth0"
-	UPHostMasterInterface = "net1"
+	UPHostMasterInterface = "eth2" // BM.Compute.A2.M10
 	CNIVpcDbName          = "cni-vpc-network"
 	CNIVPCIpPoolDBName    = "cni-vpc-ip-pool"
 	DefaultListenTCPPort  = 7312

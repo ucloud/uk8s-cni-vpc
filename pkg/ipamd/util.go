@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
 )
@@ -71,9 +72,13 @@ func getMasterInterface() string {
 		return UHostMasterInterface
 	}
 
-	for _, iface := range list {
-		if iface.Name == UPHostMasterInterface {
-			return UPHostMasterInterface
+	uapiClient, _ := uapi.NewClient()
+	resource := uapiClient.InstanceID()
+	if strings.HasPrefix(resource, "upm-") {
+		for _, iface := range list {
+			if iface.Name == UPHostMasterInterface {
+				return UPHostMasterInterface
+			}
 		}
 	}
 	return UHostMasterInterface
