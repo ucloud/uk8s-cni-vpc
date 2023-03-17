@@ -72,7 +72,11 @@ func getMasterInterface() string {
 		return UHostMasterInterface
 	}
 
-	uapiClient, _ := uapi.NewClient()
+	uapiClient, err := uapi.NewClient()
+	if err != nil {
+		klog.Errorf("failed to init uapi client: %v", err)
+		return UHostMasterInterface
+	}
 	resource := uapiClient.InstanceID()
 	if strings.HasPrefix(resource, "upm-") {
 		for _, iface := range list {
