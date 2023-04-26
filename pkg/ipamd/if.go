@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -241,7 +242,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	defer netns.Close()
 	_ = netns.Do(func(_ ns.NetNS) error {
 		for i := 0; i <= 2; i++ {
-			_ = arping.GratuitousArpOverIfaceByName(net.ParseIP(uni.PrivateIpSet[0]), getMasterInterface())
+			_ = arping.GratuitousArpOverIfaceByName(net.ParseIP(uni.PrivateIpSet[0]), iputils.GetMasterInterface())
 			if i != 2 {
 				time.Sleep(100 * time.Millisecond)
 			}

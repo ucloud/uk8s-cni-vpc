@@ -19,6 +19,7 @@ import (
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
 
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 )
@@ -78,4 +79,14 @@ func GetCRD() (*crdclientset.Clientset, error) {
 		}
 	})
 	return crd, err
+}
+
+const nodeKubeConfigPath = "/etc/kubernetes/kubelet.kubeconfig"
+
+func GetNodeClient() (*kubernetes.Clientset, error) {
+	cfg, err := clientcmd.BuildConfigFromFlags("", nodeKubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read kube config: %v", err)
+	}
+	return kubernetes.NewForConfig(cfg)
 }

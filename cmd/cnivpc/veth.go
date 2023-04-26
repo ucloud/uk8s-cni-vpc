@@ -30,7 +30,7 @@ import (
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/vishvananda/netlink"
 
-	log "github.com/sirupsen/logrus"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -64,13 +64,13 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 	nl := NewNl()
 	link, err := nl.LinkByName(hostVeth)
 	if err != nil {
-		log.Errorf("Failed to get host veth link %v", err)
+		klog.Errorf("Failed to get host veth link %v", err)
 		return err
 	}
 	cidr := ip + "/32"
 	_, dstcidr, err := net.ParseCIDR(cidr)
 	if err != nil {
-		log.Errorf("Failed to parse CIDR %s: %v", cidr, err)
+		klog.Errorf("Failed to parse CIDR %s: %v", cidr, err)
 		return err
 	}
 	r := netlink.Route{
@@ -101,13 +101,13 @@ func ensureProxyArp(dev string) error {
 	proxyArpCnfFile := fmt.Sprintf("/proc/sys/net/ipv4/conf/%s/proxy_arp", dev)
 	err := os.Truncate(proxyArpCnfFile, 0)
 	if err != nil {
-		log.Errorf("Cannot truncate file %s, %v", proxyArpCnfFile, err)
+		klog.Errorf("Cannot truncate file %s, %v", proxyArpCnfFile, err)
 		return err
 	}
 	f, err := os.OpenFile(proxyArpCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	defer f.Close()
 	if err != nil {
-		log.Errorf("Cannot open file %s, %v", proxyArpCnfFile, err)
+		klog.Errorf("Cannot open file %s, %v", proxyArpCnfFile, err)
 		return err
 	}
 	io.WriteString(f, "1")
@@ -125,44 +125,44 @@ var newIPTable = func(protocol iptables.Protocol) (iptable, error) {
 func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
-		log.Errorf("Failed to open netns %q: %v", netNS, err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		klog.Errorf("Failed to open netns %q: %v", netNS, err)
+		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()
 	mface, err := netlink.LinkByName(nic)
 	if err != nil {
-		log.Errorf("Failed to lookup %s: %v", nic, err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		klog.Errorf("Failed to lookup %s: %v", nic, err)
+		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("failed to lookup %s: %v", nic, err)
 	}
 
 	hostAddrs, err := netlink.AddrList(mface, netlink.FAMILY_V4)
 	if err != nil || len(hostAddrs) == 0 {
-		log.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		klog.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
+		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
 	}
 	hostVeth, _, err := setupVethPair(netns, os.Getenv("CNI_IFNAME"),
 		generateHostVethName(hostVethPrefix, podNS, podName),
 		defaultMtu, hostAddrs,
-		true, false, nic, nil, pNet.VPCIP+"/32")
+		pNet.VPCIP+"/32")
 	if err != nil {
-		log.Errorf("Failed to setup vethpair between host and container:%v", err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		klog.Errorf("Failed to setup vethpair between host and container:%v", err)
+		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return err
 	}
 
 	// Add a route rule in host when accessing pod ip go to veth
 	err = addRouteRuleForPodIp(hostVeth.Name, pNet.VPCIP)
 	if err != nil {
-		log.Errorf("Failed to add route rule for ip %v, err %v", pNet.VPCIP, err)
+		klog.Errorf("Failed to add route rule for ip %v, err %v", pNet.VPCIP, err)
 		return err
 	}
 	return nil
 }
 
-func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAddrs []netlink.Addr, containerIPV4, containerIPV6 bool, k8sIfName string, pr *current.Result, containerIp string) (*current.Interface, *current.Interface, error) {
+func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAddrs []netlink.Addr, containerIp string) (*current.Interface, *current.Interface, error) {
 	hostInterface := &current.Interface{}
 	containerInterface := &current.Interface{}
 	// Clean up old veth, if old veth exists
@@ -186,13 +186,13 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 
 		addr, err := netlink.ParseAddr(containerIp)
 		if err != nil {
-			log.Errorf("Netlink failed to parse container IP, %v", err)
+			klog.Errorf("Netlink failed to parse container IP, %v", err)
 			return err
 		}
 
 		err = netlink.AddrAdd(containerNetlinkIface, addr)
 		if err != nil {
-			log.Errorf("Netlink failed to add container IP to veth,%v", err)
+			klog.Errorf("Netlink failed to add container IP to veth,%v", err)
 			return err
 		}
 
@@ -243,10 +243,10 @@ func delHostSideVeth(podNS, podName string) error {
 	}
 	err = netlink.LinkDel(link)
 	if err != nil {
-		log.Warningf("Cannot delete hostside veth %s for pod %s/%s, %v", vethName, podNS, podName, err)
+		klog.Warningf("Cannot delete hostside veth %s for pod %s/%s, %v", vethName, podNS, podName, err)
 		return err
 	}
-	log.Infof("Finished deleting hostside veth %s for pod %s/%s", vethName, podNS, podName)
+	klog.Infof("Finished deleting hostside veth %s for pod %s/%s", vethName, podNS, podName)
 	return nil
 }
 
@@ -261,10 +261,10 @@ func generateHostVethName(prefix, namespace, podname string) string {
 func checkAndCleanOldVeth(hostVethName string) error {
 	if oldHostVeth, err := netlink.LinkByName(hostVethName); err == nil {
 		if err = netlink.LinkDel(oldHostVeth); err != nil {
-			log.Errorf("Failed to delete old hostVeth %v, %v", hostVethName, err)
+			klog.Errorf("Failed to delete old hostVeth %v, %v", hostVethName, err)
 			return fmt.Errorf("failed to delete old hostVeth %v: %v", hostVethName, err)
 		}
-		log.Infof("Finished clean old hostVeth: %v", hostVethName)
+		klog.Infof("Finished clean old hostVeth: %v", hostVethName)
 		return nil
 	}
 	return nil

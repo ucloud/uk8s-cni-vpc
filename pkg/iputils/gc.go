@@ -2,17 +2,19 @@ package iputils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"sort"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,14 +26,12 @@ const (
 
 	maxSweep = 5
 
-	GCCollectSeconds int64 = 60 * 10 // 10min
+	GCCollectSeconds int64 = 120
 
 	defaultLifetime = 10
-
-	nodeKubeConfigPath = "/etc/kubernetes/kubelet.kubeconfig"
 )
 
-type GarbageCollectorData struct {
+type GarbageCollectData struct {
 	LastUpdate     int64 `yaml:"last_update"`
 	DisableSweep   bool  `yaml:"disable_sweep"`
 	DisableCollect bool  `yaml:"disable_collect"`
@@ -59,10 +59,10 @@ type UnusedIP struct {
 }
 
 type GarbageCollector struct {
-	data *GarbageCollectorData
+	data *GarbageCollectData
 
-	ip  string
-	mac string
+	node string
+	mac  string
 
 	uapiClient *uapi.ApiClient
 
@@ -71,10 +71,10 @@ type GarbageCollector struct {
 	force bool
 }
 
-func NewGC(uapiClient *uapi.ApiClient, ip, mac string) (*GarbageCollector, error) {
+func NewGC(uapiClient *uapi.ApiClient, node, mac string) (*GarbageCollector, error) {
 	_, err := os.Stat(gcDataPath)
 	if os.IsNotExist(err) {
-		return EmptyGC(uapiClient, ip, mac), nil
+		return EmptyGC(uapiClient, node, mac), nil
 	}
 
 	file, err := os.Open(gcDataPath)
@@ -83,7 +83,7 @@ func NewGC(uapiClient *uapi.ApiClient, ip, mac string) (*GarbageCollector, error
 	}
 	defer file.Close()
 
-	var data GarbageCollectorData
+	var data GarbageCollectData
 	err = yaml.NewDecoder(file).Decode(&data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode gc data: %v", err)
@@ -93,18 +93,18 @@ func NewGC(uapiClient *uapi.ApiClient, ip, mac string) (*GarbageCollector, error
 		uapiClient: uapiClient,
 		data:       &data,
 
-		ip:  ip,
-		mac: mac,
+		node: node,
+		mac:  mac,
 	}, nil
 }
 
-func EmptyGC(uapiClient *uapi.ApiClient, ip, mac string) *GarbageCollector {
+func EmptyGC(uapiClient *uapi.ApiClient, node, mac string) *GarbageCollector {
 	return &GarbageCollector{
-		data:       new(GarbageCollectorData),
+		data:       new(GarbageCollectData),
 		uapiClient: uapiClient,
 
-		ip:  ip,
-		mac: mac,
+		node: node,
+		mac:  mac,
 	}
 }
 
@@ -118,8 +118,36 @@ func (gc *GarbageCollector) NeedCollect() bool {
 	return now >= nextCollect
 }
 
-func (gc *GarbageCollector) Count() (int, int, int) {
-	return len(gc.data.Pods), len(gc.data.Pool), len(gc.data.Unused)
+func (gc *GarbageCollector) SetKubeClient(client *kubernetes.Clientset) {
+	gc.kubeClient = client
+}
+
+func (gc *GarbageCollector) getUnusedIPs() []string {
+	ips := make([]string, len(gc.data.Unused))
+	for i, unused := range gc.data.Unused {
+		ips[i] = unused.IP
+	}
+	return ips
+}
+
+func (gc *GarbageCollector) Run(collect bool, pool []string) error {
+	if collect {
+		beforeUnused := gc.getUnusedIPs()
+		err := gc.Collect(pool)
+		if err != nil {
+			return fmt.Errorf("failed to run gc collect: %v", err)
+		}
+
+		afterUnused := gc.getUnusedIPs()
+		if !reflect.DeepEqual(beforeUnused, afterUnused) {
+			klog.Infof("gc collect update unused from %v to %v", beforeUnused, afterUnused)
+		}
+	}
+	err := gc.Sweep()
+	if err != nil {
+		return fmt.Errorf("failed to run gc sweep: %v", err)
+	}
+	return nil
 }
 
 func (gc *GarbageCollector) Collect(pool []string) error {
@@ -172,7 +200,7 @@ func (gc *GarbageCollector) Collect(pool []string) error {
 	}
 	sortUnusedData(unused)
 
-	data := &GarbageCollectorData{
+	data := &GarbageCollectData{
 		LastUpdate: time.Now().Unix(),
 
 		DisableSweep:   gc.data.DisableSweep,
@@ -190,20 +218,43 @@ func (gc *GarbageCollector) Collect(pool []string) error {
 func (gc *GarbageCollector) collectPodIPs() ([]*PodIP, error) {
 	var err error
 	if gc.kubeClient == nil {
-		gc.kubeClient, err = getNodeKubeClient()
+		gc.kubeClient, err = kubeclient.GetNodeClient()
 		if err != nil {
 			return nil, fmt.Errorf("failed to init node kube client: %v", err)
 		}
 	}
 
-	opts := metav1.ListOptions{
-		FieldSelector:   fields.OneTermEqualSelector("spec.nodeName", gc.ip).String(),
-		ResourceVersion: "0",
+	ctx := context.Background()
+	nodeList, err := gc.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list node: %v", err)
+	}
+	found := false
+	for _, node := range nodeList.Items {
+		if node.Name == gc.node {
+			found = true
+			break
+		}
+	}
+	if !found {
+		// Use this to prevent the user from manually changing the nodeName,
+		// and the IP cannot be matched successfully.
+		// Without this step, the PodIP on the node will be marked by mistake.
+		return nil, fmt.Errorf("cannot find node %s", gc.node)
 	}
 
-	podList, err := gc.kubeClient.CoreV1().Pods(corev1.NamespaceAll).List(context.Background(), opts)
+	opts := metav1.ListOptions{
+		FieldSelector:   fields.OneTermEqualSelector("spec.nodeName", gc.node).String(),
+		ResourceVersion: "0",
+	}
+	podList, err := gc.kubeClient.CoreV1().Pods(corev1.NamespaceAll).List(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list pods: %v", err)
+	}
+
+	if len(podList.Items) == 0 {
+		// Double check, in UK8S, each Node has at least one Pod.
+		return nil, errors.New("unexpected pod length, should have at least one pod")
 	}
 
 	ips := make([]*PodIP, 0, len(podList.Items))
@@ -252,27 +303,28 @@ func (gc *GarbageCollector) collectNodeIPs() ([]string, error) {
 	return ips, nil
 }
 
-func (gc *GarbageCollector) Sweep() (int, error) {
+func (gc *GarbageCollector) Sweep() error {
 	if !gc.force && gc.data.DisableSweep {
-		return 0, nil
+		return nil
 	}
 	if len(gc.data.Unused) == 0 {
-		return 0, nil
+		return nil
 	}
 
 	vpcClient, err := gc.uapiClient.VPCClient()
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	var deleted int
 	var live []*UnusedIP
+	var deleted []string
+	var cnt int
 	for _, unused := range gc.data.Unused {
-		if deleted >= maxSweep || unused.Lifetime >= 0 {
+		if cnt >= maxSweep || unused.Lifetime >= 0 {
 			live = append(live, unused)
 			continue
 		}
-		deleted++
+		cnt++
 
 		req := vpcClient.NewDeleteSecondaryIpRequest()
 		req.VPCId = ucloud.String(gc.uapiClient.VPCID())
@@ -284,19 +336,22 @@ func (gc *GarbageCollector) Sweep() (int, error) {
 		if err != nil {
 			// Do not abort the sweep process if releasing the IP fails.
 			// These IPs will be rediscovered in the next collect process.
-			log.Warningf("failed to release ip %s when running gc, error: %v", unused.IP, err)
+			klog.Warningf("gc sweep failed to delete secondary ip %s: %v", unused.IP, err)
 			continue
 		}
-		log.Infof("gc release unused ip %s done", unused.IP)
+		deleted = append(deleted, unused.IP)
+	}
+	if len(deleted) > 0 {
+		klog.Infof("gc sweep deleted ip: %v", deleted)
 	}
 
 	gc.data.Unused = live
 	err = gc.saveData()
 	if err != nil {
-		return 0, err
+		return fmt.Errorf("failed to save data: %v", err)
 	}
 
-	return deleted, nil
+	return nil
 }
 
 func (gc *GarbageCollector) saveData() error {
@@ -313,12 +368,4 @@ func (gc *GarbageCollector) saveData() error {
 		return fmt.Errorf("failed to encode gc data: %v", err)
 	}
 	return nil
-}
-
-func getNodeKubeClient() (*kubernetes.Clientset, error) {
-	cfg, err := clientcmd.BuildConfigFromFlags("", nodeKubeConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read kube config: %v", err)
-	}
-	return kubernetes.NewForConfig(cfg)
 }

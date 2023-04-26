@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -201,7 +202,7 @@ func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 func sendGratuitousArp(vpcip string) {
 	// Send a gratuitous arp, using Host's primary interface hardware address
 	for i := 0; i <= 2; i++ {
-		err := arping.GratuitousArpOverIfaceByName(net.ParseIP(vpcip), getMasterInterface())
+		err := arping.GratuitousArpOverIfaceByName(net.ParseIP(vpcip), iputils.GetMasterInterface())
 		if err != nil {
 			klog.Errorf("send gratuitous arp error:%v", err)
 		}
@@ -231,6 +232,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 	klog.Infof("Start ip pool watermark manager loop")
 	tk := time.Tick(10 * time.Second)
 	cooldownTk := time.Tick(time.Second * time.Duration(CooldownPeriodSeconds))
+	gcTk := time.Tick(time.Second * time.Duration(iputils.GCCollectSeconds))
 	healthSize := 0
 	for {
 		select {
@@ -252,6 +254,9 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 					healthSize = size
 				}
 			}
+
+		case <-gcTk:
+			s.runGC()
 
 		case r := <-chanAddPodIP:
 			pNet, err := s.getPodIp(r.Req)
@@ -375,7 +380,7 @@ func (s *ipamServer) appendPool(size int) {
 		sendGratuitousArp(ip.Ip)
 		pNet := convertIpToPodNetwork(ip)
 		s.pool.Set(getReservedIPKey(pNet), pNet)
-		klog.Infof("successfully allocated ip %s to pool", ip.Ip)
+		klog.Infof("add ip %s to pool", ip.Ip)
 	}
 }
 
@@ -408,9 +413,6 @@ func (s *ipamServer) releasePool(size int) {
 }
 
 func (s *ipamServer) cooldownIP(ip *rpc.PodNetwork) {
-	s.cooldownLock.Lock()
-	defer s.cooldownLock.Unlock()
-
 	over := time.Now().Unix() + CooldownPeriodSeconds
 	klog.Infof("put ip %s to cooldown set, it will be recycled on %d", ip.VPCIP, over)
 	ip.RecycleTime = time.Now().Unix()
@@ -423,9 +425,6 @@ func (s *ipamServer) cooldownIP(ip *rpc.PodNetwork) {
 }
 
 func (s *ipamServer) recycleCooldownIP() {
-	s.cooldownLock.Lock()
-	defer s.cooldownLock.Unlock()
-
 	if len(s.cooldownSet) == 0 {
 		return
 	}
@@ -446,6 +445,36 @@ func (s *ipamServer) recycleCooldownIP() {
 		newSet = append(newSet, cdIP)
 	}
 	s.cooldownSet = newSet
+}
+
+func (s *ipamServer) runGC() {
+	ips, err := s.pool.List()
+	if err != nil {
+		klog.Errorf("failed to list ip, error: %v", err)
+		return
+	}
+
+	pool := make([]string, len(ips))
+	for i, ip := range ips {
+		pool[i] = ip.VPCIP
+	}
+
+	for _, ip := range s.cooldownSet {
+		pool = append(pool, ip.vpcIP.VPCIP)
+	}
+
+	gc, err := iputils.NewGC(s.uapi, s.nodeName, s.hostMacAddr)
+	if err != nil {
+		klog.Warningf("failed to init gc, error: %v, we will use an empty one", err)
+		gc = iputils.EmptyGC(s.uapi, s.nodeName, s.hostMacAddr)
+	}
+	gc.SetKubeClient(s.kubeClient)
+
+	err = gc.Run(true, pool)
+	if err != nil {
+		klog.Errorf("failed to run gc, error: %v", err)
+		return
+	}
 }
 
 func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
@@ -559,9 +588,6 @@ func (s *ipamServer) doFreeIpPool() {
 }
 
 func (s *ipamServer) doFreeCooldown() {
-	s.cooldownLock.Lock()
-	defer s.cooldownLock.Unlock()
-
 	for _, cdIP := range s.cooldownSet {
 		err := s.uapiDeleteSecondaryIp(cdIP.vpcIP.VPCIP)
 		if err != nil {

@@ -29,6 +29,7 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 )
 
@@ -214,7 +215,7 @@ func (s *ipamServer) checkIPConflict(ip string) error {
 	defer s.conflictLock.Unlock()
 	klog.Infof("Begin to detect ip conflict for %s", ip)
 	start := time.Now()
-	conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(ip), getMasterInterface())
+	conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(ip), iputils.GetMasterInterface())
 	if err != nil {
 		return fmt.Errorf("failed to detect conflict for ip %s: %v", ip, err)
 	}

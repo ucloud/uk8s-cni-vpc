@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
@@ -35,12 +36,10 @@ import (
 )
 
 const (
-	IpamdServiceSocket    = "/run/cni-vpc-ipamd.sock"
-	UHostMasterInterface  = "eth0"
-	UPHostMasterInterface = "net1"
-	CNIVpcDbName          = "cni-vpc-network"
-	CNIVPCIpPoolDBName    = "cni-vpc-ip-pool"
-	DefaultListenTCPPort  = 7312
+	IpamdServiceSocket   = "/run/cni-vpc-ipamd.sock"
+	CNIVpcDbName         = "cni-vpc-network"
+	CNIVPCIpPoolDBName   = "cni-vpc-ip-pool"
+	DefaultListenTCPPort = 7312
 )
 
 type ipamServer struct {
@@ -54,8 +53,7 @@ type ipamServer struct {
 	pool     storage.Storage[rpc.PodNetwork]
 	nodeName string
 
-	cooldownSet  []*cooldownIPItem
-	cooldownLock sync.Mutex
+	cooldownSet []*cooldownIPItem
 
 	conflictLock sync.Mutex
 
@@ -79,7 +77,7 @@ type ipamServer struct {
 }
 
 func Start() error {
-	kubeClient, err := kubeclient.Get()
+	kubeClient, err := kubeclient.GetNodeClient()
 	if err != nil {
 		return err
 	}
@@ -194,14 +192,13 @@ func (s *ipamServer) initServer() {
 	}
 	s.zoneId = zoneId
 	// Fetch node's master network device mac address
-	masterInterface := getMasterInterface()
-	macAddr, err := getNodeMacAddress(masterInterface)
+	macAddr, err := iputils.GetNodeMacAddress("")
 	if err != nil {
 		klog.Fatalf("Cannot get node master network interface mac addr, %v", err)
 	}
 	s.hostMacAddr = macAddr
 	// Fetch node's master network device ip address
-	nodeIp, err := getNodeIPAddress(masterInterface)
+	nodeIp, err := iputils.GetNodeIPAddress("")
 	if err != nil {
 		klog.Fatalf("Cannot get node IP address, %v", err)
 	} else {

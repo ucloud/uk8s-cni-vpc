@@ -5,8 +5,8 @@ import (
 	"net"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 func GetMasterInterface() string {
 	list, err := net.Interfaces()
 	if err != nil {
-		log.Errorf("Unable to list interfaces in root network namespace, %v", err)
+		klog.Errorf("Unable to list interfaces in root network namespace, %v", err)
 		return UHostMasterInterface
 	}
 
@@ -73,6 +73,9 @@ func GetNodeIPAddress(dev string) (*netlink.Addr, error) {
 }
 
 func GetNodeMacAddress(dev string) (string, error) {
+	if dev == "" {
+		dev = GetMasterInterface()
+	}
 	iface, err := net.InterfaceByName(dev)
 	if err != nil {
 		return "", err

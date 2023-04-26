@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/containernetworking/cni/pkg/types"
-	log "github.com/sirupsen/logrus"
 	"github.com/ucloud/go-lockfile"
+	"k8s.io/klog/v2"
 )
 
 func MustAcquire() func() {
@@ -59,7 +59,7 @@ func handleErr(err error) {
 	if err == nil {
 		return
 	}
-	log.Errorf("LockfileRun Error %+v %v", err, os.Args)
+	klog.Errorf("LockfileRun Error %+v %v", err, os.Args)
 	e := types.Error{
 		Code:    types.ErrInternal,
 		Msg:     "LockfileRun",
@@ -67,7 +67,7 @@ func handleErr(err error) {
 	}
 	ne := e.Print()
 	if ne != nil {
-		log.Errorf("LockfileRun print Error %+v %v", ne, os.Args)
+		klog.Errorf("LockfileRun print Error %+v %v", ne, os.Args)
 	}
 	os.Exit(1)
 }
