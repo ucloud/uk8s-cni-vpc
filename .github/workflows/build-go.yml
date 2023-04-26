@@ -27,4 +27,4 @@ jobs:
       run: bash scripts/check-fmt.sh
 
     - name: Build
-      run: make build
+      run: go build ./...
