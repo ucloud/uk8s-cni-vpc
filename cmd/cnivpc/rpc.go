@@ -16,10 +16,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
@@ -47,16 +47,6 @@ const (
 	UAPIErrorIPNotExst = 58221
 )
 
-// Get node master network interface mac address
-func getNodeMacAddress(dev string) (string, error) {
-	i, e := net.InterfaceByName(dev)
-	if e != nil {
-		log.Errorf("Get mac address error for dev %s, %v", dev, e)
-		return "", e
-	}
-	return strings.ToUpper(i.HardwareAddr.String()), nil
-}
-
 // Get local bolt db storage for cni-vpc-network
 func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNetwork], error) {
 	db, err := storage.NewDBFileHandler(storageFile)
@@ -70,6 +60,29 @@ func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNe
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
 func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
+	uapi, err := uapi.NewClient()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to init uapi client: %v", err)
+	}
+	ipAddr, macAddr, err := iputils.GetNodeAddress("")
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get addr: %v", err)
+	}
+
+	gc, err := iputils.NewGC(uapi, ipAddr, macAddr)
+	if err != nil {
+		log.Warningf("failed to init ip gc, error: %v, we will use an empty one", err)
+		gc = iputils.EmptyGC(uapi, ipAddr, macAddr)
+	}
+	defer func() {
+		deleted, err := gc.Sweep()
+		if err != nil {
+			log.Warningf("failed to run gc, error: %v", err)
+			return
+		}
+		log.Infof("gc sweep done, deleted %d ip", deleted)
+	}()
+
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	if err == nil {
 		// There are two prerequisites for using ipamd:
@@ -85,8 +98,16 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 			return ip, true, nil
 		}
 	}
+
+	if gc.NeedCollect() {
+		err = gc.Collect(nil)
+		if err != nil {
+			log.Warningf("failed to collect gc, error: %v", err)
+		}
+	}
+
 	// ipamd not available, directly call vpc to allocate IP
-	ip, err := allocateSecondaryIP(podName, podNS, sandboxId)
+	ip, err := allocateSecondaryIP(uapi, macAddr, podName, podNS, sandboxId)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to call vpc: %v", err)
 	}
@@ -117,17 +138,7 @@ func releasePodIp(podName, podNS, netNS, sandboxId string, pNet *rpc.PodNetwork)
 	}
 }
 
-func allocateSecondaryIP(podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
-	// Get node master interface hardware address
-	macAddr, err := getNodeMacAddress(getMasterInterface())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get mac addr: %v", err)
-	}
-
-	uapi, err := uapi.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to init uapi client: %v", err)
-	}
+func allocateSecondaryIP(uapi *uapi.ApiClient, macAddr string, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
 	cli, err := uapi.VPCClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
@@ -249,7 +260,7 @@ func getObjectIDforSecondaryIP() (string, error) {
 
 func deallocateSecondaryIP(podName, podNS, podInfraContainerID string, pNet *rpc.PodNetwork) error {
 	if pNet.MacAddress == "" {
-		macAddr, err := getNodeMacAddress(getMasterInterface())
+		macAddr, err := iputils.GetNodeMacAddress("")
 		if err == nil {
 			pNet.MacAddress = macAddr
 		} else {

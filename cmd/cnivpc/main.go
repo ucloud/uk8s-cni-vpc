@@ -23,6 +23,7 @@ import (
 
 	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/lockfile"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/portmap"
 	vs "github.com/ucloud/uk8s-cni-vpc/pkg/version"
@@ -38,11 +39,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
-)
-
-const (
-	UHostMasterInterface  = "eth0"
-	UPHostMasterInterface = "net1"
 )
 
 func showVersion() {
@@ -105,7 +101,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	podNS := podArgs["K8S_POD_NAMESPACE"]
 	sandBoxId := podArgs["K8S_POD_INFRA_CONTAINER_ID"]
 	netNS := os.Getenv("CNI_NETNS")
-	masterInterface := getMasterInterface()
+	masterInterface := iputils.GetMasterInterface()
 
 	// To assign a VPC IP for pod
 	pNet, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
@@ -128,7 +124,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to enable proxy arp: %v", err)
 		}
-		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), getMasterInterface())
+		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), iputils.GetMasterInterface())
 		if err != nil {
 			log.Errorf("Failed to detect conflict for ip %v of pod %v, err %v", pNet.VPCIP, podName, err)
 			rollbackReleaseIP()
@@ -276,21 +272,6 @@ func parseDNSConfig() types.DNS {
 	result.Nameservers = dns.Servers
 	result.Search = dns.Search
 	return result
-}
-
-func getMasterInterface() string {
-	list, err := net.Interfaces()
-	if err != nil {
-		log.Errorf("Unable to list interfaces in root network namespace, %v", err)
-		return UHostMasterInterface
-	}
-
-	for _, iface := range list {
-		if iface.Name == UPHostMasterInterface {
-			return UPHostMasterInterface
-		}
-	}
-	return UHostMasterInterface
 }
 
 func getRoutes() (routes []*types.Route, err error) {
