@@ -12,9 +12,9 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"gopkg.in/yaml.v3"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,7 +140,7 @@ func (gc *GarbageCollector) Run(collect bool, pool []string) error {
 
 		afterUnused := gc.getUnusedIPs()
 		if !reflect.DeepEqual(beforeUnused, afterUnused) {
-			klog.Infof("gc collect update unused from %v to %v", beforeUnused, afterUnused)
+			ulog.Infof("gc collect update unused from %v to %v", beforeUnused, afterUnused)
 		}
 	}
 	err := gc.Sweep()
@@ -336,13 +336,13 @@ func (gc *GarbageCollector) Sweep() error {
 		if err != nil {
 			// Do not abort the sweep process if releasing the IP fails.
 			// These IPs will be rediscovered in the next collect process.
-			klog.Warningf("gc sweep failed to delete secondary ip %s: %v", unused.IP, err)
+			ulog.Warnf("gc sweep failed to delete secondary ip %s: %v", unused.IP, err)
 			continue
 		}
 		deleted = append(deleted, unused.IP)
 	}
 	if len(deleted) > 0 {
-		klog.Infof("gc sweep deleted ip: %v", deleted)
+		ulog.Infof("gc sweep deleted ip: %v", deleted)
 	}
 
 	gc.data.Unused = live

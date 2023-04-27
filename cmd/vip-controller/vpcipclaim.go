@@ -21,13 +21,13 @@ import (
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	crdinformers "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/vipcontroller/v1beta1"
 	crdlisters "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/listers/vipcontroller/v1beta1"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/klog/v2"
 )
 
 type VipController struct {
@@ -64,11 +64,11 @@ func (c *VipController) Run(workers int, stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 	defer c.deleteQueue.ShutDown()
 
-	klog.Infof("Starting vpcipclaim controller")
-	defer klog.Warningf("Shutting down vpcipclaim controller")
+	ulog.Infof("Starting vpcipclaim controller")
+	defer ulog.Warnf("Shutting down vpcipclaim controller")
 
 	if !cache.WaitForNamedCacheSync("vpcipclaims", stopCh, c.vipSynced) {
-		klog.Errorf("Cannot finish WaitForNamedCacheSync for vpcipclaims")
+		ulog.Errorf("Cannot finish WaitForNamedCacheSync for vpcipclaims")
 		return
 	}
 
@@ -88,7 +88,7 @@ func (c *VipController) worker() {
 func (c *VipController) processDelete() {
 	s, quit := c.deleteQueue.Get()
 	if quit {
-		klog.Warningf("Empty deleteQueue")
+		ulog.Warnf("Empty deleteQueue")
 		return
 	}
 	defer c.deleteQueue.Forget(s)
@@ -101,7 +101,7 @@ func (c *VipController) processDelete() {
 func (c *VipController) onVipDelete(vip *v1beta1.VpcIpClaim) error {
 	notRunning, err := ensureStaticIpPodNotRunning(c.kubeClient, vip.Namespace, vip.Name)
 	if err == nil && notRunning {
-		klog.Infof("VpcIpClaim %s/%s %s is deleted, now release secondary ip", vip.Namespace, vip.Name, vip.Spec.Ip)
+		ulog.Infof("VpcIpClaim %s/%s %s is deleted, now release secondary ip", vip.Namespace, vip.Name, vip.Spec.Ip)
 		return releaseVPCIp(*vip)
 	} else {
 		return fmt.Errorf("cannot delete vip %s/%s %s, podNotRunning %v, get pod err %v", vip.Namespace, vip.Name, vip.Spec.Ip, notRunning, err)

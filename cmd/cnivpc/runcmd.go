@@ -19,14 +19,14 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ns"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
-	"k8s.io/klog/v2"
 )
 
 func setNodePortRange(podName, podNS, netNS, sandBoxId string, pNet *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
-		klog.Errorf("Failed to open netns %q: %v", netNS, err)
+		ulog.Errorf("Failed to open netns %q: %v", netNS, err)
 		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
 	}

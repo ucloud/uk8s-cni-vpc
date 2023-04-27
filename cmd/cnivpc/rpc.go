@@ -25,9 +25,8 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
-
-	"k8s.io/klog/v2"
 
 	"google.golang.org/grpc"
 )
@@ -51,7 +50,7 @@ const (
 func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNetwork], error) {
 	db, err := storage.NewDBFileHandler(storageFile)
 	if err != nil {
-		klog.Errorf("cannot get storage file handler:%v", err)
+		ulog.Errorf("cannot get storage file handler:%v", err)
 		return nil, err
 	}
 	return storage.NewDisk[rpc.PodNetwork](dbName, db)
@@ -87,12 +86,12 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 
 	gc, err := iputils.NewGC(uapi, ipAddr, macAddr)
 	if err != nil {
-		klog.Warningf("failed to init ip gc, error: %v, we will use an empty one", err)
+		ulog.Warnf("failed to init ip gc, error: %v, we will use an empty one", err)
 		gc = iputils.EmptyGC(uapi, ipAddr, macAddr)
 	}
 	err = gc.Run(gc.NeedCollect(), nil)
 	if err != nil {
-		klog.Warningf("failed to run gc, error: %v", err)
+		ulog.Warnf("failed to run gc, error: %v", err)
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
@@ -147,7 +146,7 @@ func allocateSecondaryIP(uapi *uapi.ApiClient, macAddr string, podName, podNS, s
 
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
-		klog.Errorf("Failed to AllocateSecondaryIp for unetwork api service, %v", err)
+		ulog.Errorf("Failed to AllocateSecondaryIp for unetwork api service, %v", err)
 		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
@@ -185,7 +184,7 @@ func checkSecondaryIPExist(ip, mac string) (bool, error) {
 	req.SubnetId = ucloud.String(uapi.SubnetID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		klog.Errorf("DescribeSecondaryIp %s failed, %v", ip, err)
+		ulog.Errorf("DescribeSecondaryIp %s failed, %v", ip, err)
 		return false, err
 	}
 	if len(resp.DataSet) > 0 {
@@ -231,7 +230,7 @@ func getObjectIDforSecondaryIP() (string, error) {
 	req.UHostIds = []string{}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
-		klog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
+		ulog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
 		return instanceId, nil
 	}
 
@@ -261,7 +260,7 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 		return fmt.Errorf("cannot find secondary ip %s, %v", pNet.VPCIP, err)
 	}
 	if !exist {
-		klog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", pNet.VPCIP)
+		ulog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", pNet.VPCIP)
 		return nil
 	}
 
@@ -291,12 +290,12 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 	resp, err := cli.DeleteSecondaryIp(req)
 	if err != nil {
 		if resp.RetCode == UAPIErrorIPNotExst {
-			klog.Warningf("Secondary ip %s has been deleted before", pNet.VPCIP)
+			ulog.Warnf("Secondary ip %s has been deleted before", pNet.VPCIP)
 			return nil
 		}
-		klog.Errorf("Delete secondary ip failed, request is %+v, err is %+v ", req, err)
+		ulog.Errorf("Delete secondary ip failed, request is %+v, err is %+v ", req, err)
 	} else {
-		klog.Infof("Delete secondary ip %s success.", pNet.VPCIP)
+		ulog.Infof("Delete secondary ip %s success.", pNet.VPCIP)
 	}
 	return err
 }
@@ -320,12 +319,12 @@ func allocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, netNS, sa
 		})
 
 	if err != nil {
-		klog.Errorf("Error received from AddPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, sandboxID, err)
+		ulog.Errorf("Error received from AddPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, sandboxID, err)
 		return nil, err
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		klog.Errorf("gRPC AddPodNetwork failed, code %v", r.Code)
+		ulog.Errorf("gRPC AddPodNetwork failed, code %v", r.Code)
 		return nil, fmt.Errorf("gRPC AddPodNetwork failed, code %v", r.Code)
 	}
 
@@ -339,12 +338,12 @@ func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, podInfr
 	r, err := c.DelPodNetwork(context.Background(), delRPC)
 
 	if err != nil {
-		klog.Errorf("Error received from DelPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, podInfraContainerID, err)
+		ulog.Errorf("Error received from DelPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, podInfraContainerID, err)
 		return err
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		klog.Errorf("Error code received from DelPodNetwork gRPC call for pod %s namespace %s container %s: %v",
+		ulog.Errorf("Error code received from DelPodNetwork gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, podInfraContainerID, r.Code)
 		return fmt.Errorf("DelPodNetwork Code %v", r.Code)
 	}
@@ -371,7 +370,7 @@ func addPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork)
 func addPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		klog.Errorf("cannot get storage db handler: %v", err)
+		ulog.Errorf("cannot get storage db handler: %v", err)
 		releasePodIp(podName, podNS, sandBoxID, pNet)
 		return err
 	}
@@ -386,13 +385,13 @@ func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		})
 
 	if err != nil {
-		klog.Errorf("Error received from AddPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
+		ulog.Errorf("Error received from AddPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)
 		return err
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		klog.Errorf("gRPC AddPodNetworkRecord failed, code %v", r.Code)
+		ulog.Errorf("gRPC AddPodNetworkRecord failed, code %v", r.Code)
 		return fmt.Errorf("gRPC AddPodNetworkRecord failed, code %v", r.Code)
 	}
 	return nil
@@ -420,7 +419,7 @@ func delPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNet
 	}
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		klog.Errorf("cannot get storage db handler:%v", err)
+		ulog.Errorf("cannot get storage db handler:%v", err)
 		return err
 	}
 	defer store.Close()
@@ -436,13 +435,13 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		})
 
 	if err != nil {
-		klog.Errorf("Error received from DelPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
+		ulog.Errorf("Error received from DelPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)
 		return err
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		klog.Errorf("gRPC DelPodNetworkRecord failed, code %v", r.Code)
+		ulog.Errorf("gRPC DelPodNetworkRecord failed, code %v", r.Code)
 		return fmt.Errorf("gRPC DelPodNetworkRecord failed, code %v", r.Code)
 	}
 	return nil
@@ -467,7 +466,7 @@ func getPodNetworkRecord(podName, podNS, sandBoxID string) (*rpc.PodNetwork, err
 func getPodNetworkRecordLocal(podName, podNS, sandBoxID string) (*rpc.PodNetwork, error) {
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		klog.Errorf("Cannot get storage db handler: %v", err)
+		ulog.Errorf("Cannot get storage db handler: %v", err)
 		return nil, err
 	}
 	defer store.Close()
@@ -487,13 +486,13 @@ func getPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		})
 
 	if err != nil {
-		klog.Errorf("Error received from GetPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
+		ulog.Errorf("Error received from GetPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)
 		return nil, err
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		klog.Errorf("gRPC GetPodNetworkRecord failed, code %v", r.Code)
+		ulog.Errorf("gRPC GetPodNetworkRecord failed, code %v", r.Code)
 		return nil, fmt.Errorf("gRPC GetPodNetworkRecord failed, code %v", r.Code)
 	}
 	return r.GetPodNetwork(), nil

@@ -5,8 +5,8 @@ import (
 	"net"
 	"strings"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/vishvananda/netlink"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 func GetMasterInterface() string {
 	list, err := net.Interfaces()
 	if err != nil {
-		klog.Errorf("Unable to list interfaces in root network namespace, %v", err)
+		ulog.Errorf("Unable to list interfaces in root network namespace, %v", err)
 		return UHostMasterInterface
 	}
 

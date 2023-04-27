@@ -25,11 +25,11 @@ import (
 	crdinformers "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -46,11 +46,11 @@ func init() {
 }
 
 func showVersion() {
-	klog.Infof("Controller Version: " + version.CNIVersion)
-	klog.Infof("Go Version: " + runtime.Version())
-	klog.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
-	klog.Infof("Build Time: " + version.BuildTime)
-	klog.Infof("Git Commit ID: " + version.ProgramCommitID)
+	ulog.Infof("Controller Version: " + version.CNIVersion)
+	ulog.Infof("Go Version: " + runtime.Version())
+	ulog.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
+	ulog.Infof("Build Time: " + version.BuildTime)
+	ulog.Infof("Git Commit ID: " + version.ProgramCommitID)
 }
 
 func main() {
@@ -71,12 +71,12 @@ func main() {
 	// Set up sts controller
 	kubeClient, err := kubeclient.Get()
 	if err != nil {
-		klog.Fatalf("Failed to create kubernetes clientsets, %v", err)
+		ulog.Fatalf("Failed to create kubernetes clientsets, %v", err)
 	}
 
 	vipClient, err := kubeclient.GetCRD()
 	if err != nil {
-		klog.Fatalf("Failed to create crd vpcipclaim clientsets, %v", err)
+		ulog.Fatalf("Failed to create crd vpcipclaim clientsets, %v", err)
 	}
 
 	stsInformer := informers.NewSharedInformerFactory(kubeClient, 0)
@@ -92,10 +92,10 @@ func main() {
 }
 
 func reconcileDetachedVip() {
-	klog.Infof("Start vpcipclaim garbage clean loop")
+	ulog.Infof("Start vpcipclaim garbage clean loop")
 	duration, err := time.ParseDuration(staticIpGcInterval)
 	if err != nil {
-		klog.Warningf("Failed to parse --static-ip-gc-interval, %v, set gc interval 1h as default", err)
+		ulog.Warnf("Failed to parse --static-ip-gc-interval, %v, set gc interval 1h as default", err)
 		duration = 1 * time.Hour
 	}
 	if duration < minStaticIpGcInterval {
@@ -114,7 +114,7 @@ func reconcileDetachedVip() {
 func vipCheckAndClean() {
 	vipClient, err := kubeclient.GetCRD()
 	if err != nil {
-		klog.Errorf("Cannot get clientset for crd vpcipclaim, %v", err)
+		ulog.Errorf("Cannot get clientset for crd vpcipclaim, %v", err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func vipCheckAndClean() {
 	vipList, err := vipClient.VipcontrollerV1beta1().VpcIpClaims(v1.NamespaceAll).List(context.TODO(),
 		metav1.ListOptions{LabelSelector: "attached=false", Limit: defaultListCRDLimit})
 	if err != nil {
-		klog.Errorf("Cannot list all detached vpcipclaims, %v", err)
+		ulog.Errorf("Cannot list all detached vpcipclaims, %v", err)
 	}
 
 	for _, vpcip := range vipList.Items {
@@ -132,14 +132,14 @@ func vipCheckAndClean() {
 				if detachTime.Add(release).Before(time.Now()) {
 					kubeClient, err := kubeclient.Get()
 					if err != nil {
-						klog.Errorf("Cannot get kube client to check pod, %v", err)
+						ulog.Errorf("Cannot get kube client to check pod, %v", err)
 					}
 					notRunning, err := ensureStaticIpPodNotRunning(kubeClient, vpcip.Namespace, vpcip.Name)
 					if err == nil && notRunning {
-						klog.Infof("VpcIpclaim %s/%s %s has reached release time, will be deleted", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip)
+						ulog.Infof("VpcIpclaim %s/%s %s has reached release time, will be deleted", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip)
 						err = vipClient.VipcontrollerV1beta1().VpcIpClaims(vpcip.Namespace).Delete(context.TODO(), vpcip.Name, metav1.DeleteOptions{})
 						if err != nil {
-							klog.Errorf("Delete vpcipclaim %s/%s %s failed, %v", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip, err)
+							ulog.Errorf("Delete vpcipclaim %s/%s %s failed, %v", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip, err)
 						}
 					}
 				}
@@ -166,10 +166,10 @@ func releaseVPCIp(vpcip v1beta1.VpcIpClaim) error {
 	req.SubnetId = ucloud.String(vpcip.Spec.SubnetId)
 	resp, err := cli.DeleteSecondaryIp(req)
 	if err == nil {
-		klog.Infof("Secondary ip %v deleted by unetwork api service", vpcip.Spec.Ip)
+		ulog.Infof("Secondary ip %v deleted by unetwork api service", vpcip.Spec.Ip)
 	}
 	if resp.RetCode == UAPIErrorIPNotExst {
-		klog.Warningf("Secondary ip %s has been deleted before", vpcip.Spec.Ip)
+		ulog.Warnf("Secondary ip %s has been deleted before", vpcip.Spec.Ip)
 		return nil
 	}
 	return err

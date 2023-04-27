@@ -19,9 +19,8 @@ import (
 	"runtime"
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
-
-	"k8s.io/klog/v2"
 )
 
 func init() {
@@ -31,11 +30,11 @@ func init() {
 }
 
 func showVersion() {
-	klog.Infof("CNI Version: " + version.CNIVersion)
-	klog.Infof("Go Version: " + runtime.Version())
-	klog.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
-	klog.Info("Build Time: " + version.BuildTime)
-	klog.Infof("Git Commit ID: " + version.ProgramCommitID)
+	ulog.Infof("CNI Version: " + version.CNIVersion)
+	ulog.Infof("Go Version: " + runtime.Version())
+	ulog.Infof("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
+	ulog.Infof("Build Time: " + version.BuildTime)
+	ulog.Infof("Git Commit ID: " + version.ProgramCommitID)
 }
 
 func main() {
@@ -49,7 +48,7 @@ func main() {
 
 	err := ipamd.Start()
 	if err != nil {
-		klog.Errorf("Failed to launch ipamd service: %v", err)
+		ulog.Errorf("Failed to launch ipamd service: %v", err)
 		os.Exit(1)
 	}
 }
