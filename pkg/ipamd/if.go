@@ -20,7 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -29,7 +31,6 @@ import (
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netns"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -39,19 +40,19 @@ const (
 
 // netNS /proc/9791/ns/net
 func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIPCfg) (*vpc.NetworkInterface, error) {
-	klog.Infof("Set up UNI for pod %s/%s, network namespace %s", pod.Name, pod.Namespace, netNS)
+	ulog.Infof("Set up UNI for pod %s/%s, network namespace %s", pod.Name, pod.Namespace, netNS)
 
 	// Create a new UCloud NetworkInterface
 	id, err := s.uapiCreateUNI(pod, cfg)
 	if err != nil {
-		klog.Errorf("Cannot allocate UNI from unetwork service, %v", err)
+		ulog.Errorf("Cannot allocate UNI from unetwork service, %v", err)
 		return nil, err
 	}
 
 	// Set up UNI for pod
 	uni, err := s.setupUNI(id, netNS)
 	if err != nil {
-		klog.Errorf("Failed to setup UNI %v for pod %s/%s, %v, give UNI %v back", uni.InterfaceId, pod.Name, pod.Namespace, err, uni.InterfaceId)
+		ulog.Errorf("Failed to setup UNI %v for pod %s/%s, %v, give UNI %v back", uni.InterfaceId, pod.Name, pod.Namespace, err, uni.InterfaceId)
 		// Rollback uni resource
 		s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 		return nil, err
@@ -61,7 +62,7 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 	if len(cfg.EIPId) == 0 {
 		eip, err := s.uapiAllocateEIP(pod, cfg)
 		if err != nil {
-			klog.Errorf("Failed to allocate EIP for pod %s/%s, %v", pod.Name, pod.Namespace, err)
+			ulog.Errorf("Failed to allocate EIP for pod %s/%s, %v", pod.Name, pod.Namespace, err)
 			// Rollback uni resource
 			s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 			return nil, err
@@ -73,7 +74,7 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 
 	err = s.uapiBindEIPForUNI(eipId, uni.InterfaceId)
 	if err != nil {
-		klog.Errorf("Failed to bind EIP for pod %s/%s in uni %v, %v", pod.Name, pod.Namespace, uni.InterfaceId, err)
+		ulog.Errorf("Failed to bind EIP for pod %s/%s in uni %v, %v", pod.Name, pod.Namespace, uni.InterfaceId, err)
 		s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 		return nil, err
 	}
@@ -87,13 +88,13 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 		}
 		err = s.setPodAnnotation(pod, annotations)
 		if err != nil {
-			klog.Warningf("cannot update annotation for pod %s/%s:%v", pod.Name, pod.Namespace, err)
+			ulog.Warnf("cannot update annotation for pod %s/%s:%v", pod.Name, pod.Namespace, err)
 		}
-		klog.Infof("Pod %s/%s, network namespace %s now has dedicated UNI %s, and EIP %s is bound", pod.Name, pod.Namespace, netNS, uni.InterfaceId,
+		ulog.Infof("Pod %s/%s, network namespace %s now has dedicated UNI %s, and EIP %s is bound", pod.Name, pod.Namespace, netNS, uni.InterfaceId,
 			eipId)
 		return uni, nil
 	} else {
-		klog.Errorf("Cannot update uni %s, %v", uni.InterfaceId, err)
+		ulog.Errorf("Cannot update uni %s, %v", uni.InterfaceId, err)
 		return nil, err
 	}
 }
@@ -102,24 +103,24 @@ func (s *ipamServer) rollBackUNI(podUID string, interfaceId string) {
 	go func() {
 		e := s.releaseUNI(string(podUID), interfaceId)
 		if e != nil {
-			klog.Errorf("Release uni %s failed, %v", interfaceId, e)
+			ulog.Errorf("Release uni %s failed, %v", interfaceId, e)
 		}
 	}()
 }
 
 func (s *ipamServer) tearDownDedicatedUNIForPod(pNet *rpc.PodNetwork) error {
-	klog.Infof("Tear down UNI for pod %s/%s", pNet.PodName, pNet.PodNS)
+	ulog.Infof("Tear down UNI for pod %s/%s", pNet.PodName, pNet.PodNS)
 	// Get the pid of the pause process inside the pod
 	p, err := s.store.Get(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
 	if err != nil {
-		klog.Errorf("Cannot get pod %s network information, %v", pNet.PodName+"/"+pNet.PodNS, err)
+		ulog.Errorf("Cannot get pod %s network information, %v", pNet.PodName+"/"+pNet.PodNS, err)
 		return err
 	}
 	if p == nil {
-		klog.Infof("Pod network information for %s/%s no more exist", pNet.PodName, pNet.PodNS)
+		ulog.Infof("Pod network information for %s/%s no more exist", pNet.PodName, pNet.PodNS)
 		return nil
 	}
-	klog.Infof("Pod network for %s/%s:%+v", pNet.PodName, pNet.PodNS, pNet)
+	ulog.Infof("Pod network for %s/%s:%+v", pNet.PodName, pNet.PodNS, pNet)
 	err = s.releaseUNI(pNet.PodUID, pNet.InterfaceID)
 	if err != nil {
 		return fmt.Errorf("fail to release uni %s, %v", pNet.InterfaceID, err)
@@ -147,7 +148,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	// Attach UNI to UHost
 	err = s.uapiAttachUNI(s.hostId, id)
 	if err != nil {
-		klog.Errorf("Attach UNI %v to %v failed, %v", id, s.hostId, err)
+		ulog.Errorf("Attach UNI %v to %v failed, %v", id, s.hostId, err)
 		return nil, err
 	}
 	uni, _ := s.uapiDescribeUNI(id)
@@ -158,7 +159,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	// Modify MTU
 	err = netlink.LinkSetMTU(link, defaultMtu)
 	if err != nil {
-		klog.Errorf("Cannot modify mtu for link %v, %v", link.Attrs().Name, err)
+		ulog.Errorf("Cannot modify mtu for link %v, %v", link.Attrs().Name, err)
 		return nil, err
 	}
 	// Move link to pod's namespace
@@ -176,7 +177,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	if err != nil {
 		return nil, fmt.Errorf("cannot get netlink handler of %v, %v", podNS, err)
 	}
-	klog.Infof("Get access to pod network namespace, %+v", podNShandle)
+	ulog.Infof("Get access to pod network namespace, %+v", podNShandle)
 	defer podNShandle.Delete()
 	// Set link name eth0
 	link, err = findInterfaceOfUNI(uni, podNShandle)
@@ -235,13 +236,13 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	// Send a gratuitous arp, using hardware address of UNI
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
-		klog.Warningf("Failed to open netns %s:, %v", netNS, err)
+		ulog.Warnf("Failed to open netns %s:, %v", netNS, err)
 		return uni, nil
 	}
 	defer netns.Close()
 	_ = netns.Do(func(_ ns.NetNS) error {
 		for i := 0; i <= 2; i++ {
-			_ = arping.GratuitousArpOverIfaceByName(net.ParseIP(uni.PrivateIpSet[0]), getMasterInterface())
+			_ = arping.GratuitousArpOverIfaceByName(net.ParseIP(uni.PrivateIpSet[0]), iputils.GetMasterInterface())
 			if i != 2 {
 				time.Sleep(100 * time.Millisecond)
 			}
@@ -272,20 +273,20 @@ func (s *ipamServer) releaseUNI(podUid, uniId string) error {
 			if err == nil {
 				expectedRemark := getUNetRemark(podUid)
 				if eipSet.Remark == expectedRemark {
-					klog.Infof("Release EIP %s for %s", eip, expectedRemark)
+					ulog.Infof("Release EIP %s for %s", eip, expectedRemark)
 					err = s.uapiReleaseEIP(eip)
 					if err != nil {
 						return err
 					}
 				}
 			} else {
-				klog.Warningf("Cannot describe eip %s, %v", eip, err)
+				ulog.Warnf("Cannot describe eip %s, %v", eip, err)
 			}
 		}
 		// Detach UNI
 		err := s.uapiDetachUNI(uni.AttachInstanceId, uni.InterfaceId)
 		if err != nil {
-			klog.Errorf("Failed to detach UNI %s from %s, %v", uni.InterfaceId, uni.AttachInstanceId, err)
+			ulog.Errorf("Failed to detach UNI %s from %s, %v", uni.InterfaceId, uni.AttachInstanceId, err)
 			return err
 		}
 	}
@@ -305,13 +306,13 @@ func findInterfaceOfUNI(uni *vpc.NetworkInterface, handler *netlink.Handle) (net
 	}
 
 	if err != nil {
-		klog.Errorf("Cannot list all interfaces, %v", err)
+		ulog.Errorf("Cannot list all interfaces, %v", err)
 		return nil, err
 	}
 
 	for _, link := range links {
 		if strings.ToLower(link.Attrs().HardwareAddr.String()) == strings.ToLower(uni.MacAddress) {
-			klog.Infof("Link %s (type %s) is the interface of UNI %s, MacAddr %v", link.Attrs().Name, link.Type(), uni.InterfaceId, uni.MacAddress)
+			ulog.Infof("Link %s (type %s) is the interface of UNI %s, MacAddr %v", link.Attrs().Name, link.Type(), uni.InterfaceId, uni.MacAddress)
 			return link, nil
 		}
 	}

@@ -27,6 +27,7 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud/auth"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/config"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 )
 
@@ -97,7 +98,7 @@ func (c *ApiClient) CreateCredential() (*auth.Credential, error) {
 	// In latest uk8s clusters, we removed api key in cm uk8sconfig
 	config, err := external.LoadSTSConfig(external.AssumeRoleRequest{RoleName: characterName})
 	if err != nil {
-		logWarningf("Cannot get sts token for role %v, %v, credential will be invalid", characterName, err)
+		ulog.Warnf("Get STS Token for role %v error: %v, credential will be invalid", characterName, err)
 		// In past uk8s clusters, we injected api key in cm uk8sconfig
 		credential.PublicKey = os.Getenv("UCLOUD_API_PUBKEY")
 		credential.PrivateKey = os.Getenv("UCLOUD_API_PRIKEY")
@@ -166,7 +167,7 @@ func getMyself() (*metadata.Metadata, error) {
 	client := metadata.NewClient()
 	md, err := client.GetInstanceIdentityDocument()
 	if err != nil {
-		logErrorf("cannot get instance metadata, %v", err)
+		ulog.Errorf("Get instance metadata error: %v", err)
 		return nil, err
 	} else {
 		return &md, nil

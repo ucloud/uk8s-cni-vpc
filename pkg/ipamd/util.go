@@ -14,42 +14,10 @@
 package ipamd
 
 import (
-	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
-
-	"github.com/vishvananda/netlink"
-	"k8s.io/klog/v2"
 )
-
-// Get node master network interface mac address.
-// By setting pod spec hostNetwork:true, we can get mac addresses in host network namespace.
-func getNodeMacAddress(dev string) (string, error) {
-	i, e := net.InterfaceByName(dev)
-	if e != nil {
-		return "", e
-	}
-	return strings.ToUpper(i.HardwareAddr.String()), nil
-}
-
-func getNodeIPAddress(dev string) (*netlink.Addr, error) {
-	hface, err := netlink.LinkByName(dev)
-	if err != nil {
-		klog.Errorf("Failed to lookup %s: %v", dev, err)
-		return nil, fmt.Errorf("failed to lookup %s: %v", dev, err)
-	}
-	hostAddrs, err := netlink.AddrList(hface, netlink.FAMILY_V4)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get host ip addresses for %q: %v", hface, err)
-	}
-	if len(hostAddrs) == 0 {
-		return nil, fmt.Errorf("host ip addresses empty")
-	}
-
-	return &(hostAddrs[0]), nil
-}
 
 func hostType(resourceId string) string {
 	if strings.HasPrefix(resourceId, "uhost-") {
@@ -62,21 +30,6 @@ func hostType(resourceId string) string {
 		return "UDHost"
 	}
 	return "UHost"
-}
-
-func getMasterInterface() string {
-	list, err := net.Interfaces()
-	if err != nil {
-		klog.Errorf("Unable to list interfaces in root network namespace, %v", err)
-		return UHostMasterInterface
-	}
-
-	for _, iface := range list {
-		if iface.Name == UPHostMasterInterface {
-			return UPHostMasterInterface
-		}
-	}
-	return UHostMasterInterface
 }
 
 func pathExist(filename string) bool {

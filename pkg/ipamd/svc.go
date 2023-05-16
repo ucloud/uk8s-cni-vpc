@@ -22,25 +22,24 @@ import (
 	"syscall"
 
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/boltdb/bolt"
 	"github.com/vishvananda/netlink"
 	"google.golang.org/grpc"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/klog/v2"
 )
 
 const (
-	IpamdServiceSocket    = "/run/cni-vpc-ipamd.sock"
-	UHostMasterInterface  = "eth0"
-	UPHostMasterInterface = "net1"
-	CNIVpcDbName          = "cni-vpc-network"
-	CNIVPCIpPoolDBName    = "cni-vpc-ip-pool"
-	DefaultListenTCPPort  = 7312
+	IpamdServiceSocket   = "/run/cni-vpc-ipamd.sock"
+	CNIVpcDbName         = "cni-vpc-network"
+	CNIVPCIpPoolDBName   = "cni-vpc-ip-pool"
+	DefaultListenTCPPort = 7312
 )
 
 type ipamServer struct {
@@ -54,8 +53,7 @@ type ipamServer struct {
 	pool     storage.Storage[rpc.PodNetwork]
 	nodeName string
 
-	cooldownSet  []*cooldownIPItem
-	cooldownLock sync.Mutex
+	cooldownSet []*cooldownIPItem
 
 	conflictLock sync.Mutex
 
@@ -79,7 +77,7 @@ type ipamServer struct {
 }
 
 func Start() error {
-	kubeClient, err := kubeclient.Get()
+	kubeClient, err := kubeclient.GetNodeClient()
 	if err != nil {
 		return err
 	}
@@ -105,7 +103,7 @@ func Start() error {
 	ipd.initServer()
 	// Enable telemetry
 	rpc.RegisterCNIIpamServer(server, ipd)
-	klog.Infof("Start ipamd on node %v %v, kubernetes version: %v", os.Getenv("KUBE_NODE_NAME"), ipd.hostId, ipd.k8sVersion)
+	ulog.Infof("Start ipamd on node %v %v, kubernetes version: %v", os.Getenv("KUBE_NODE_NAME"), ipd.hostId, ipd.k8sVersion)
 
 	go cleanUpOnTermination(server, ipd)
 
@@ -122,30 +120,30 @@ func Start() error {
 		go func() {
 			err = startDevicePlugin()
 			if err != nil {
-				klog.Fatalf("Cannot start device plugin for UNI: %v", err)
+				ulog.Fatalf("Cannot start device plugin for UNI: %v", err)
 			}
 		}()
 	}
 
 	socketListenr, err := net.Listen("unix", IpamdServiceSocket)
-	klog.Flush()
+	ulog.Flush()
 	if err != nil {
-		klog.Fatalf("listen socket: %v", err)
+		ulog.Fatalf("listen socket: %v", err)
 	}
 
 	tcpListener, err := net.Listen("tcp", ipd.tcpAddr)
 	if err != nil {
-		klog.Fatal("listen tcp: %v", err)
+		ulog.Fatalf("listen tcp: %v", err)
 	}
 
 	errChan := make(chan error)
 	go func() {
-		klog.Infof("Start to serve socket: %s", IpamdServiceSocket)
+		ulog.Infof("Start to serve socket: %s", IpamdServiceSocket)
 		err = server.Serve(socketListenr)
 		errChan <- err
 	}()
 	go func() {
-		klog.Infof("Start to serve tcp: %s", ipd.tcpAddr)
+		ulog.Infof("Start to serve tcp: %s", ipd.tcpAddr)
 		err = server.Serve(tcpListener)
 		errChan <- err
 	}()
@@ -176,34 +174,33 @@ func (s *ipamServer) initServer() {
 	// About k8s version
 	k8sVersion, err := s.kubeClient.DiscoveryClient.ServerVersion()
 	if err != nil {
-		klog.Fatalf("Cannot get k8s apiserver version, %v", err)
+		ulog.Fatalf("Cannot get k8s apiserver version, %v", err)
 	}
 	s.k8sVersion = k8sVersion.String()
 	// About node itself
 	hostId, err := s.getKubeNodeLabel(os.Getenv("KUBE_NODE_NAME"), KubeNodeLabelUhostID)
 	if err != nil {
-		klog.Fatalf("Cannot get host id for node %v", os.Getenv("KUBE_NODE_NAME"))
+		ulog.Fatalf("Cannot get host id for node %v", os.Getenv("KUBE_NODE_NAME"))
 	}
 	s.hostId = hostId
 	zoneId, err := s.getKubeNodeLabel(os.Getenv("KUBE_NODE_NAME"), KubeNodeZoneKey)
 	if err != nil {
 		zoneId, err = s.getKubeNodeLabel(os.Getenv("KUBE_NODE_NAME"), KubeNodeZoneTopologyKey)
 		if err != nil {
-			klog.Fatalf("Cannot get zone id for node %v", os.Getenv("KUBE_NODE_NAME"))
+			ulog.Fatalf("Cannot get zone id for node %v", os.Getenv("KUBE_NODE_NAME"))
 		}
 	}
 	s.zoneId = zoneId
 	// Fetch node's master network device mac address
-	masterInterface := getMasterInterface()
-	macAddr, err := getNodeMacAddress(masterInterface)
+	macAddr, err := iputils.GetNodeMacAddress("")
 	if err != nil {
-		klog.Fatalf("Cannot get node master network interface mac addr, %v", err)
+		ulog.Fatalf("Cannot get node master network interface mac addr, %v", err)
 	}
 	s.hostMacAddr = macAddr
 	// Fetch node's master network device ip address
-	nodeIp, err := getNodeIPAddress(masterInterface)
+	nodeIp, err := iputils.GetNodeIPAddress("")
 	if err != nil {
-		klog.Fatalf("Cannot get node IP address, %v", err)
+		ulog.Fatalf("Cannot get node IP address, %v", err)
 	} else {
 		s.nodeIpAddr = nodeIp
 	}
@@ -216,24 +213,24 @@ func (s *ipamServer) initServer() {
 
 	s.db, err = storage.NewDBFileHandler(storageFile)
 	if err != nil {
-		klog.Fatalf("cannot get boltdb file  handler for %s: %v", storageFile, err)
+		ulog.Fatalf("cannot get boltdb file  handler for %s: %v", storageFile, err)
 	}
 	s.store, err = storage.NewDisk[rpc.PodNetwork](CNIVpcDbName, s.db)
 	if err != nil {
-		klog.Fatalf("cannot get pod network storage handler: %v", err)
+		ulog.Fatalf("cannot get pod network storage handler: %v", err)
 	}
 	s.pool, err = storage.NewDisk[rpc.PodNetwork](CNIVPCIpPoolDBName, s.db)
 	if err != nil {
-		klog.Fatalf("cannot get vpc ip pool storage handler: %v", err)
+		ulog.Fatalf("cannot get vpc ip pool storage handler: %v", err)
 	}
 
 	clusterInfo, err := s.uapiListUK8SCluster()
 	if err != nil {
-		klog.Errorf("Cannot list uk8s clusterInfo, %v", err)
+		ulog.Errorf("Cannot list uk8s clusterInfo, %v", err)
 	} else {
 		_, svcCIDR, err := net.ParseCIDR(clusterInfo.ServiceCIDR)
 		if err != nil {
-			klog.Errorf("Parse svc cidr %s failed, %v", clusterInfo.ServiceCIDR, err)
+			ulog.Errorf("Parse svc cidr %s failed, %v", clusterInfo.ServiceCIDR, err)
 			s.svcCIDR = nil
 		} else {
 			s.svcCIDR = svcCIDR
@@ -247,7 +244,7 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, os.Kill, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
-	klog.Infof("Receive signal %+v, will stop myself gracefully", sig)
+	ulog.Infof("Receive signal %+v, will stop myself gracefully", sig)
 	chanStopLoop <- true
 	ipd.doFreeIpPool()
 	ipd.doFreeCooldown()
@@ -256,8 +253,8 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	// if ipamd is updating and rollback to cni, the cni will not know how to deal with the static ip.(maybe free the static ip)
 	// so unless the user detach the ipamd through another way, the ipamd should not unInstallCNIComponent
 	//unInstallCNIComponent()
-	klog.Info("Good Bye!")
+	ulog.Infof("Good Bye!")
 	s.Stop()
-	klog.Flush()
+	ulog.Flush()
 	os.Exit(0)
 }

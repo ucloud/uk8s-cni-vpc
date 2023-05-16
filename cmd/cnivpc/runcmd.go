@@ -19,15 +19,15 @@ import (
 
 	"github.com/containernetworking/plugins/pkg/ns"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
 
 func setNodePortRange(podName, podNS, netNS, sandBoxId string, pNet *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
-		log.Errorf("Failed to open netns %q: %v", netNS, err)
-		releasePodIp(podName, podNS, netNS, sandBoxId, pNet)
+		ulog.Errorf("Failed to open netns %q: %v", netNS, err)
+		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()

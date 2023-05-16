@@ -22,14 +22,15 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 
 	"github.com/ucloud/ucloud-sdk-go/services/uk8s"
 	"github.com/ucloud/ucloud-sdk-go/services/unet"
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 )
 
 const (
@@ -160,7 +161,7 @@ func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
 	req.UHostIds = []string{}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
-		klog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
+		ulog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
 		return instanceId, nil
 	}
 
@@ -199,11 +200,11 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 			if resp != nil && resp.GetRetCode() == UAPIErrorSubnetNotEnough {
 				return ips, ErrOutOfIP
 			}
-			klog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
+			ulog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
 			continue
 		}
 
-		klog.Infof("Allocated Ip %v from unetwork api service", resp.IpInfo.Ip)
+		ulog.Infof("Allocated Ip %v from unetwork api service", resp.IpInfo.Ip)
 		ips = append(ips, &(resp.IpInfo))
 	}
 	return
@@ -212,16 +213,16 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 func (s *ipamServer) checkIPConflict(ip string) error {
 	s.conflictLock.Lock()
 	defer s.conflictLock.Unlock()
-	klog.Infof("Begin to detect ip conflict for %s", ip)
+	ulog.Infof("Begin to detect ip conflict for %s", ip)
 	start := time.Now()
-	conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(ip), getMasterInterface())
+	conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(ip), iputils.GetMasterInterface())
 	if err != nil {
 		return fmt.Errorf("failed to detect conflict for ip %s: %v", ip, err)
 	}
 	if conflict {
 		return fmt.Errorf("ip %s is still in conflict after retrying", ip)
 	}
-	klog.Infof("Detect ip conflict for %s done, took %v", ip, time.Since(start))
+	ulog.Infof("Detect ip conflict for %s done, took %v", ip, time.Since(start))
 	return nil
 }
 
@@ -245,9 +246,9 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
-		klog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
+		ulog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
 	}
-	klog.Infof("Allocated Ip %v from unetwork api service", resp.IpInfo.Ip)
+	ulog.Infof("Allocated Ip %v from unetwork api service", resp.IpInfo.Ip)
 	return &resp.IpInfo, nil
 }
 
@@ -264,7 +265,7 @@ func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, 
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		klog.Errorf("Describe secondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
+		ulog.Errorf("Describe secondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
 		return nil, err
 	}
 
@@ -304,7 +305,7 @@ func (s *ipamServer) checkSecondaryIpExist(ip, mac string) (bool, error) {
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		klog.Errorf("DescribeSecondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
+		ulog.Errorf("DescribeSecondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
 		return false, err
 	}
 	if len(resp.DataSet) > 0 {
@@ -319,7 +320,7 @@ func (s *ipamServer) uapiDeleteSecondaryIp(ip string) error {
 		return fmt.Errorf("cannot find secondary ip %s, %v", ip, err)
 	}
 	if !exist {
-		klog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", ip)
+		ulog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", ip)
 		return nil
 	}
 
@@ -338,10 +339,10 @@ func (s *ipamServer) uapiDeleteSecondaryIp(ip string) error {
 
 	resp, err := cli.DeleteSecondaryIp(req)
 	if err == nil {
-		klog.Infof("Secondary Ip %v deleted by unetwork api service", ip)
+		ulog.Infof("Secondary Ip %v deleted by unetwork api service", ip)
 	}
 	if resp.RetCode == UAPIErrorIPNotExst {
-		klog.Warningf("Secondary ip %s has been deleted before", ip)
+		ulog.Warnf("Secondary ip %s has been deleted before", ip)
 		return nil
 	}
 	return err
@@ -402,7 +403,7 @@ func (s *ipamServer) uapiDescribeUNI(uniId string) (*vpc.NetworkInterface, error
 	req.InterfaceId = []string{uniId}
 	resp, err := cli.DescribeNetworkInterface(req)
 	if err != nil {
-		klog.Errorf("DescribeNetworkInterface %s failed, request id %s %v", uniId, resp.GetRequestUUID(), err)
+		ulog.Errorf("DescribeNetworkInterface %s failed, request id %s %v", uniId, resp.GetRequestUUID(), err)
 		return nil, err
 	}
 	if len(resp.NetworkInterfaceSet) == 0 {
@@ -547,7 +548,7 @@ func (s *ipamServer) uapiBindEIPForUNI(eipId, resId string) error {
 	if eipSet.Status == "freeze" {
 		return fmt.Errorf("eip %s is freeze, please contact UCloud support team.", eipId)
 	} else if eipSet.Status == "used" && eipSet.Resource.ResourceID != resId {
-		klog.Infof("EIP %s is bound to %s, unbind it now", eipId, eipSet.Resource.ResourceID)
+		ulog.Infof("EIP %s is bound to %s, unbind it now", eipId, eipSet.Resource.ResourceID)
 		unbindId := eipSet.Resource.ResourceID
 		unbindType := eipSet.Resource.ResourceType
 		if len(eipSet.Resource.SubResourceId) > 0 {

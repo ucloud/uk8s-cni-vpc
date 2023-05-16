@@ -25,9 +25,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"google.golang.org/grpc"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
 
@@ -50,7 +50,7 @@ type UNIDevicePlugin struct {
 // NewUNIDevicePlugin returns an initialized UNIDevicePlugin
 func NewUNIDevicePlugin(count int) *UNIDevicePlugin {
 	pluginEndpoint := fmt.Sprintf(serverSock, time.Now().Unix())
-	klog.Infof("Start UNI DevicePlugin, UNI capacity is %d", count)
+	ulog.Infof("Start UNI DevicePlugin, UNI capacity is %d", count)
 	return &UNIDevicePlugin{
 		socket: pluginEndpoint,
 		count:  count,
@@ -162,7 +162,7 @@ func (m *UNIDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlu
 		case <-ticker.C:
 			err := s.Send(&pluginapi.ListAndWatchResponse{Devices: devs})
 			if err != nil {
-				klog.Errorf("error send device informance: error: %v", err)
+				ulog.Errorf("error send device informance: error: %v", err)
 			}
 		case <-m.stop:
 			return nil
@@ -176,7 +176,7 @@ func (m *UNIDevicePlugin) Allocate(ctx context.Context, r *pluginapi.AllocateReq
 		ContainerResponses: []*pluginapi.ContainerAllocateResponse{},
 	}
 
-	klog.Infof("Request Containers: %v", r.GetContainerRequests())
+	ulog.Infof("Request Containers: %v", r.GetContainerRequests())
 	for range r.GetContainerRequests() {
 		response.ContainerResponses = append(response.ContainerResponses,
 			&pluginapi.ContainerAllocateResponse{},
@@ -195,7 +195,7 @@ func (m *UNIDevicePlugin) cleanup() error {
 	for _, preSock := range preSocks {
 		if uniServerSockRegex.Match([]byte(preSock.Name())) && preSock.Mode()&os.ModeSocket != 0 {
 			if err = syscall.Unlink(path.Join(pluginapi.DevicePluginPath, preSock.Name())); err != nil {
-				klog.Errorf("error on clean up previous device plugin listens, %+v", err)
+				ulog.Errorf("error on clean up previous device plugin listens, %+v", err)
 			}
 		}
 	}
@@ -209,11 +209,11 @@ func (m *UNIDevicePlugin) watchKubeletRestart() {
 			return
 		}
 		if os.IsNotExist(err) {
-			klog.Infof("device plugin socket %s removed, restarting.", m.socket)
+			ulog.Infof("device plugin socket %s removed, restarting.", m.socket)
 			m.Stop()
 			err := m.Start()
 			if err != nil {
-				klog.Fatalf("error restart device plugin after kubelet restart %+v", err)
+				ulog.Fatalf("error restart device plugin after kubelet restart %+v", err)
 			}
 			err = m.Register(
 				pluginapi.RegisterRequest{
@@ -223,11 +223,11 @@ func (m *UNIDevicePlugin) watchKubeletRestart() {
 				},
 			)
 			if err != nil {
-				klog.Fatalf("error register device plugin after kubelet restart %+v", err)
+				ulog.Fatalf("error register device plugin after kubelet restart %+v", err)
 			}
 			return
 		}
-		klog.Fatalf("error stat socket: %+v", err)
+		ulog.Fatalf("error stat socket: %+v", err)
 	}, time.Second*30, make(chan struct{}, 1))
 }
 
@@ -235,11 +235,11 @@ func (m *UNIDevicePlugin) watchKubeletRestart() {
 func (m *UNIDevicePlugin) Serve(resourceName string) error {
 	err := m.Start()
 	if err != nil {
-		klog.Errorf("Could not start device plugin: %v", err)
+		ulog.Errorf("Could not start device plugin: %v", err)
 		return err
 	}
 	time.Sleep(5 * time.Second)
-	klog.Infof("Starting to serve on %s", m.socket)
+	ulog.Infof("Starting to serve on %s", m.socket)
 
 	err = m.Register(
 		pluginapi.RegisterRequest{
@@ -249,11 +249,11 @@ func (m *UNIDevicePlugin) Serve(resourceName string) error {
 		},
 	)
 	if err != nil {
-		klog.Errorf("Could not register device plugin: %v", err)
+		ulog.Errorf("Could not register device plugin: %v", err)
 		m.Stop()
 		return err
 	}
-	klog.Infof("Registered device plugin with Kubelet")
+	ulog.Infof("Registered device plugin with Kubelet")
 	go m.watchKubeletRestart()
 
 	return nil

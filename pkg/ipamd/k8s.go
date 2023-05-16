@@ -25,9 +25,9 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/util/retry"
-	"k8s.io/klog/v2"
 )
 
 const (
@@ -83,7 +83,7 @@ func (s *ipamServer) setPodAnnotation(pod *v1.Pod, pairs map[string]string) erro
 		return localErr
 	})
 	if err != nil {
-		klog.Errorf("Cannot set annotation pair %v for pod %s/%s, %v", pairs, pod.Name, pod.Namespace, err)
+		ulog.Errorf("Cannot set annotation pair %v for pod %s/%s, %v", pairs, pod.Name, pod.Namespace, err)
 	}
 
 	return err
@@ -104,16 +104,16 @@ func (s *ipamServer) getLocalPods() (*v1.PodList, error) {
 func (s *ipamServer) getKubeNodeLabel(nodeName, key string) (string, error) {
 	node, err := s.getKubeNode(nodeName)
 	if err != nil {
-		klog.Errorf("Cannot get kube node %v, %v", nodeName, err)
+		ulog.Errorf("Cannot get kube node %v, %v", nodeName, err)
 		return "", err
 	}
 
 	if val, found := node.ObjectMeta.Labels[key]; found {
-		klog.Infof("Get key %v from node labels for node %v, value: %v", key, nodeName, val)
+		ulog.Infof("Get key %v from node labels for node %v, value: %v", key, nodeName, val)
 		return val, nil
 	}
 
-	klog.Warningf("Cannot find label %v for node %s", key, nodeName)
+	ulog.Warnf("Cannot find label %v for node %s", key, nodeName)
 	return "", fmt.Errorf("cannot find label %v for node %s", key, nodeName)
 }
 
@@ -128,7 +128,7 @@ func (s *ipamServer) getKubeNode(nodeName string) (*v1.Node, error) {
 func (s *ipamServer) getPod(podName, podNS string) (*v1.Pod, error) {
 	pod, err := s.kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Failed to get pod %s/%s, %v", podName, podNS, err)
+		ulog.Errorf("Failed to get pod %s/%s, %v", podName, podNS, err)
 		return nil, err
 	}
 	return pod, nil
@@ -149,14 +149,14 @@ func (s *ipamServer) podNeedDedicatedUNI(pod *v1.Pod) (bool, *EIPCfg) {
 				if bandwidth, err := strconv.Atoi(pod.Annotations[AnnotationEIPBandwidth]); err == nil && bandwidth > 0 {
 					cfg.Bandwidth = bandwidth
 				} else {
-					klog.Warningf("Cannot not parse annotation %s, %v", AnnotationEIPBandwidth, err)
+					ulog.Warnf("Cannot not parse annotation %s, %v", AnnotationEIPBandwidth, err)
 				}
 			}
 			if len(pod.Annotations[AnnotationEIPQuantity]) > 0 {
 				if quantity, err := strconv.Atoi(pod.Annotations[AnnotationEIPQuantity]); err == nil && quantity > 0 {
 					cfg.Quantity = quantity
 				} else {
-					klog.Warningf("Cannot not parse annotation %s, %v", AnnotationEIPQuantity, err)
+					ulog.Warnf("Cannot not parse annotation %s, %v", AnnotationEIPQuantity, err)
 				}
 			}
 			if len(pod.Annotations[AnnotationEIPID]) > 0 {
@@ -190,7 +190,7 @@ func (s *ipamServer) podEnableStaticIP(podName, podNS string) (bool, *v1.Pod, er
 	statefulset := false
 	pod, err := s.getPod(podName, podNS)
 	if err != nil {
-		klog.Errorf("Get pod failed, err: %v", err)
+		ulog.Errorf("Get pod failed, err: %v", err)
 		return false, nil, err
 	}
 

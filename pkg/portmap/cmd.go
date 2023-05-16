@@ -30,8 +30,8 @@ import (
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
-	log "github.com/sirupsen/logrus"
 	"github.com/ucloud/uk8s-cni-vpc/config"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 )
 
 // The default mark bit to signal that masquerading is required
@@ -56,14 +56,14 @@ func CmdAdd(args *skel.CmdArgs, conf *config.Plugin) error {
 
 	if netConf.ContIPv4.IP != nil {
 		if err := forwardPorts(netConf, netConf.ContIPv4); err != nil {
-			log.Errorf("portmap CmdAdd failed: %s", err)
+			ulog.Errorf("portmap CmdAdd failed: %s", err)
 			return err
 		}
 	}
 
 	if netConf.ContIPv6.IP != nil {
 		if err := forwardPorts(netConf, netConf.ContIPv6); err != nil {
-			log.Errorf("portmap CmdAdd failed: %s", err)
+			ulog.Errorf("portmap CmdAdd failed: %s", err)
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func CmdDel(args *skel.CmdArgs, conf *config.Plugin) error {
 	// We don't need to parse out whether or not we're using v6 or snat,
 	// deletion is idempotent
 	if err := unforwardPorts(netConf); err != nil {
-		log.Errorf("portmap CmdDel failed: %s", err)
+		ulog.Errorf("portmap CmdDel failed: %s", err)
 		return err
 	}
 	return nil

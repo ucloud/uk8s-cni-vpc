@@ -22,6 +22,7 @@ import (
 
 	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -36,7 +37,6 @@ import (
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
-	"k8s.io/klog/v2"
 )
 
 const stsEnableStaticIpNote = "network.beta.kubernetes.io/ucloud-statefulset-static-ip"
@@ -73,7 +73,7 @@ func NewStsController(stsInformer appsinformer.StatefulSetInformer, client clien
 		DeleteFunc: func(del interface{}) {
 			s := del.(*appsv1.StatefulSet)
 			if needHandleVpcIpClaim(s) {
-				klog.Infof("Sts %s/%s deleted", s.Namespace, s.Name)
+				ulog.Infof("Sts %s/%s deleted", s.Namespace, s.Name)
 				sts.deleteQueue.Add(s)
 			}
 		},
@@ -90,11 +90,11 @@ func (c *StsController) Run(workers int, stopCh <-chan struct{}) {
 	defer c.updateQueue.ShutDown()
 	defer c.deleteQueue.ShutDown()
 
-	klog.Infof("Starting statefulset controller")
-	defer klog.Infof("Shutting down statefulset controller")
+	ulog.Infof("Starting statefulset controller")
+	defer ulog.Infof("Shutting down statefulset controller")
 
 	if !cache.WaitForNamedCacheSync("statefulsets", stopCh, c.stsSynced) {
-		klog.Errorf("Cannot finish WaitForNamedCacheSync for statefulsets")
+		ulog.Errorf("Cannot finish WaitForNamedCacheSync for statefulsets")
 		return
 	}
 
@@ -120,7 +120,7 @@ func (c *StsController) worker() {
 func (c *StsController) processUpdate() {
 	s, quit := c.updateQueue.Get()
 	if quit {
-		klog.Warningf("Empty updateQueue")
+		ulog.Warnf("Empty updateQueue")
 		return
 	}
 
@@ -138,13 +138,13 @@ func (c *StsController) onStsUpdate(key string) error {
 
 	vipList, err := c.vipClient.VipcontrollerV1beta1().VpcIpClaims(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: fmt.Sprintf("owner-statefulset=%s", name)})
 	if err != nil {
-		klog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", namespace, name, err)
+		ulog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", namespace, name, err)
 		return err
 	}
 
 	sts, err := c.stsLister.StatefulSets(namespace).Get(name)
 	if err != nil {
-		klog.Errorf("Cannot get statefulset %s/%s, %v", namespace, name, err)
+		ulog.Errorf("Cannot get statefulset %s/%s, %v", namespace, name, err)
 		// Sts may being deleted afterwards
 		if k8serr.IsNotFound(err) {
 			return nil
@@ -170,7 +170,7 @@ func (c *StsController) onStsUpdate(key string) error {
 				}
 			}
 		} else {
-			klog.Errorf("Cannot parse idx number %s, %v", vip.Name, err)
+			ulog.Errorf("Cannot parse idx number %s, %v", vip.Name, err)
 			return err
 		}
 	}
@@ -181,7 +181,7 @@ func (c *StsController) onStsUpdate(key string) error {
 func (c *StsController) processDelete() {
 	s, quit := c.deleteQueue.Get()
 	if quit {
-		klog.Warningf("Empty deleteQueue")
+		ulog.Warnf("Empty deleteQueue")
 		return
 	}
 	defer c.deleteQueue.Forget(s)
@@ -192,10 +192,10 @@ func (c *StsController) processDelete() {
 }
 
 func (c *StsController) onStsDelete(sts *appsv1.StatefulSet) error {
-	klog.Infof("Mark all vpcipclaims of sts %s/%s detached", sts.Namespace, sts.Name)
+	ulog.Infof("Mark all vpcipclaims of sts %s/%s detached", sts.Namespace, sts.Name)
 	vipList, err := c.vipClient.VipcontrollerV1beta1().VpcIpClaims(sts.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: fmt.Sprintf("owner-statefulset=%s", sts.Name)})
 	if err != nil {
-		klog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", sts.Namespace, sts.Name, err)
+		ulog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", sts.Namespace, sts.Name, err)
 		return err
 	}
 
@@ -208,11 +208,11 @@ func (c *StsController) onStsDelete(sts *appsv1.StatefulSet) error {
 }
 
 func (c *StsController) markVPCIpClaimDetached(vip *v1beta1.VpcIpClaim) error {
-	klog.Infof("Mark vpcipclaim %s/%s %s detached", vip.Namespace, vip.Name, vip.Spec.Ip)
+	ulog.Infof("Mark vpcipclaim %s/%s %s detached", vip.Namespace, vip.Name, vip.Spec.Ip)
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		vip, localErr := c.vipClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Get(context.TODO(), vip.Name, metav1.GetOptions{})
 		if localErr != nil {
-			klog.Infof("Cannot get latest vpcipclaim %s/%s, %v", vip.Namespace, vip.Name, localErr)
+			ulog.Infof("Cannot get latest vpcipclaim %s/%s, %v", vip.Namespace, vip.Name, localErr)
 			return localErr
 		}
 		if vip.Labels != nil {
@@ -228,7 +228,7 @@ func (c *StsController) markVPCIpClaimDetached(vip *v1beta1.VpcIpClaim) error {
 		return localErr
 	})
 	if err != nil {
-		klog.Errorf("Mark crd vpcipclaim %s/%s as detached failed, %v", vip.Namespace, vip.Name, err)
+		ulog.Errorf("Mark crd vpcipclaim %s/%s as detached failed, %v", vip.Namespace, vip.Name, err)
 	}
 	return err
 }
@@ -249,7 +249,7 @@ func ensureStaticIpPodNotRunning(kubeClient clientset.Interface, namespace, name
 		if k8serr.IsNotFound(err) {
 			return true, nil
 		} else {
-			klog.Errorf("Get pod %s/%s failed, %v", namespace, name, err)
+			ulog.Errorf("Get pod %s/%s failed, %v", namespace, name, err)
 			return false, err
 		}
 	}
@@ -276,6 +276,6 @@ func ensureStaticIpPodNotRunning(kubeClient clientset.Interface, namespace, name
 	if pod.Status.Phase != v1.PodRunning {
 		return true, nil
 	}
-	klog.Infof("Pod %s/%s phase is %v, ip preservation enabled", namespace, name, pod.Status.Phase)
+	ulog.Infof("Pod %s/%s phase is %v, ip preservation enabled", namespace, name, pod.Status.Phase)
 	return false, nil
 }

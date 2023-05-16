@@ -21,10 +21,10 @@ import (
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/deviceplugin"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
-	"k8s.io/klog/v2"
 )
 
 // UNI limit equals to vCPU number
@@ -56,7 +56,7 @@ func startDevicePlugin() error {
 
 // Check any remaining resources(UNI, EIP) that shouldn't exist any more, delete or release them in case of any leakage.
 func (s *ipamServer) reconcile() {
-	klog.Infof("Start reconcile loop")
+	ulog.Infof("Start reconcile loop")
 	tk := time.Tick(3 * time.Minute)
 	for {
 		select {
@@ -70,13 +70,13 @@ func (s *ipamServer) doReconcile() {
 	// Get local pods
 	folks, err := s.getLocalPods()
 	if err != nil {
-		klog.Errorf("Cannot get local pods list, %v", err)
+		ulog.Errorf("Get local pods list error: %v", err)
 		return
 	}
 
 	pNets, err := s.store.List()
 	if err != nil {
-		klog.Errorf("Cannot list all local pod network information, %v", err)
+		ulog.Errorf("List all local pod network information error: %v", err)
 		return
 	}
 
@@ -88,7 +88,7 @@ func (s *ipamServer) doReconcile() {
 					break
 				}
 				if len(pNet.PodUID) == 0 {
-					klog.Infof("Complete PodUID field for record %+v", pNet)
+					ulog.Infof("Complete PodUID field for record %+v", pNet)
 					pNet.PodUID = string(p.UID)
 					s.store.Set(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID), pNet)
 					break
@@ -103,16 +103,16 @@ func (s *ipamServer) doReconcile() {
 	// Do garbage clean
 	for _, pNet := range orphans {
 		if pNet.DedicatedUNI && len(pNet.InterfaceID) > 0 {
-			klog.Infof("Start garbage clean for %s/%s, UID:%s, UNI:%s", pNet.PodName, pNet.PodNS, pNet.PodUID, pNet.InterfaceID)
+			ulog.Infof("Start garbage clean for %s/%s, UID:%s, UNI:%s", pNet.PodName, pNet.PodNS, pNet.PodUID, pNet.InterfaceID)
 			err = s.releaseUNI(pNet.PodUID, pNet.InterfaceID)
 			if err != nil {
-				klog.Errorf("Failed to do garbage clean for %s/%s, %v", pNet.PodName, pNet.PodNS, err)
+				ulog.Errorf("Do garbage clean for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
 			}
 		}
-		klog.Infof("Delete local storage for orphan pod: %+v", pNet)
+		ulog.Infof("Delete local storage for orphan pod: %+v", pNet)
 		err = s.store.Delete(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
 		if err != nil {
-			klog.Errorf("Failed to do delete local network storage of %s/%s, %v", pNet.PodName, pNet.PodNS, err)
+			ulog.Errorf("Delete local network storage for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
 		}
 	}
 	return
