@@ -59,7 +59,7 @@ func handleErr(err error) {
 	if err == nil {
 		return
 	}
-	ulog.Errorf("LockfileRun Error %+v %v", err, os.Args)
+	ulog.Errorf("LockfileRun error: %+v %v", err, os.Args)
 	e := types.Error{
 		Code:    types.ErrInternal,
 		Msg:     "LockfileRun",
@@ -67,7 +67,7 @@ func handleErr(err error) {
 	}
 	ne := e.Print()
 	if ne != nil {
-		ulog.Errorf("LockfileRun print Error %+v %v", ne, os.Args)
+		ulog.Errorf("LockfileRun print error: %+v %v", ne, os.Args)
 	}
 	os.Exit(1)
 }

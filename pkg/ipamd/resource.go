@@ -70,13 +70,13 @@ func (s *ipamServer) doReconcile() {
 	// Get local pods
 	folks, err := s.getLocalPods()
 	if err != nil {
-		ulog.Errorf("Cannot get local pods list, %v", err)
+		ulog.Errorf("Get local pods list error: %v", err)
 		return
 	}
 
 	pNets, err := s.store.List()
 	if err != nil {
-		ulog.Errorf("Cannot list all local pod network information, %v", err)
+		ulog.Errorf("List all local pod network information error: %v", err)
 		return
 	}
 
@@ -106,13 +106,13 @@ func (s *ipamServer) doReconcile() {
 			ulog.Infof("Start garbage clean for %s/%s, UID:%s, UNI:%s", pNet.PodName, pNet.PodNS, pNet.PodUID, pNet.InterfaceID)
 			err = s.releaseUNI(pNet.PodUID, pNet.InterfaceID)
 			if err != nil {
-				ulog.Errorf("Failed to do garbage clean for %s/%s, %v", pNet.PodName, pNet.PodNS, err)
+				ulog.Errorf("Do garbage clean for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
 			}
 		}
 		ulog.Infof("Delete local storage for orphan pod: %+v", pNet)
 		err = s.store.Delete(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
 		if err != nil {
-			ulog.Errorf("Failed to do delete local network storage of %s/%s, %v", pNet.PodName, pNet.PodNS, err)
+			ulog.Errorf("Delete local network storage for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
 		}
 	}
 	return

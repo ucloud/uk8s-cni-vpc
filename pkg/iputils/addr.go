@@ -17,7 +17,7 @@ const (
 func GetMasterInterface() string {
 	list, err := net.Interfaces()
 	if err != nil {
-		ulog.Errorf("Unable to list interfaces in root network namespace, %v", err)
+		ulog.Errorf("List interfaces in root network namespace error: %v", err)
 		return UHostMasterInterface
 	}
 

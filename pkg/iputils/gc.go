@@ -43,7 +43,7 @@ type GarbageCollectData struct {
 
 func sortUnusedData(unused []*UnusedIP) {
 	sort.Slice(unused, func(i, j int) bool {
-		return unused[i].Lifetime > unused[j].Lifetime
+		return unused[i].Lifetime < unused[j].Lifetime
 	})
 }
 
@@ -140,7 +140,7 @@ func (gc *GarbageCollector) Run(collect bool, pool []string) error {
 
 		afterUnused := gc.getUnusedIPs()
 		if !reflect.DeepEqual(beforeUnused, afterUnused) {
-			ulog.Infof("gc collect update unused from %v to %v", beforeUnused, afterUnused)
+			ulog.Infof("GC Collect update unused from %v to %v", beforeUnused, afterUnused)
 		}
 	}
 	err := gc.Sweep()
@@ -336,15 +336,16 @@ func (gc *GarbageCollector) Sweep() error {
 		if err != nil {
 			// Do not abort the sweep process if releasing the IP fails.
 			// These IPs will be rediscovered in the next collect process.
-			ulog.Warnf("gc sweep failed to delete secondary ip %s: %v", unused.IP, err)
+			ulog.Warnf("GC Sweep failed to delete secondary ip %s: %v", unused.IP, err)
 			continue
 		}
 		deleted = append(deleted, unused.IP)
 	}
-	if len(deleted) > 0 {
-		ulog.Infof("gc sweep deleted ip: %v", deleted)
+	if len(deleted) == 0 {
+		return nil
 	}
 
+	ulog.Infof("GC Sweep deleted ip: %v", deleted)
 	gc.data.Unused = live
 	err = gc.saveData()
 	if err != nil {

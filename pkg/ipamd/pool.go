@@ -154,7 +154,7 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 			return nil, err
 		}
 	} else {
-		ulog.Infof("ip %s is recycled, no need to detect conflict", pn.VPCIP)
+		ulog.Infof("IP %s is recycled, no need to detect conflict", pn.VPCIP)
 	}
 	return pn, nil
 }
