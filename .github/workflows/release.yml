@@ -27,6 +27,4 @@ jobs:
     - name: Create release
       uses: softprops/action-gh-release@v1
       with:
-        token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
-        files: |
-          cnivpc.zip
+        files: cnivpc.zip
