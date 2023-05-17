@@ -26,7 +26,6 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/auth"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/config"
-	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 )
@@ -112,25 +111,25 @@ func (c *ApiClient) CreateCredential() (*auth.Credential, error) {
 }
 
 func LocalRegion() string {
-	self, err := getMyself()
+	meta, err := GetMeta()
 	if err != nil {
-		return self.Region
+		return meta.Region
 	} else {
 		return os.Getenv("UCLOUD_REGION_ID")
 	}
 }
 
 func NewClient() (*ApiClient, error) {
-	self, err := getMyself()
+	meta, err := GetMeta()
 	if err != nil {
 		return nil, fmt.Errorf("cannot get uapi metadata information, %v", err)
 	}
 	cfg := ucloud.NewConfig()
-	cfg.Region = self.Region
-	if strings.HasPrefix(self.InstanceId, "uhost") {
-		cfg.ProjectId = self.UHost.ProjectId
-	} else if strings.HasPrefix(self.InstanceId, "upm") {
-		cfg.ProjectId = self.UPHost.ProjectId
+	cfg.Region = meta.Region
+	if strings.HasPrefix(meta.InstanceId, "uhost") {
+		cfg.ProjectId = meta.UHost.ProjectId
+	} else if strings.HasPrefix(meta.InstanceId, "upm") {
+		cfg.ProjectId = meta.UPHost.ProjectId
 	}
 
 	if len(cfg.ProjectId) == 0 {
@@ -148,28 +147,17 @@ func NewClient() (*ApiClient, error) {
 	}
 
 	uApi := &ApiClient{
-		instanceId: self.InstanceId,
-		zoneId:     self.AvailabilityZone,
+		instanceId: meta.InstanceId,
+		zoneId:     meta.AvailabilityZone,
 		cfg:        &cfg,
 	}
 	// Get vpcId and subnetId
-	if len(self.UHost.NetworkInterfaces) > 0 {
-		uApi.vpcId = self.UHost.NetworkInterfaces[0].VpcId
-		uApi.subnetId = self.UHost.NetworkInterfaces[0].SubnetId
+	if len(meta.UHost.NetworkInterfaces) > 0 {
+		uApi.vpcId = meta.UHost.NetworkInterfaces[0].VpcId
+		uApi.subnetId = meta.UHost.NetworkInterfaces[0].SubnetId
 	} else {
 		uApi.vpcId = os.Getenv("UCLOUD_VPC_ID")
 		uApi.subnetId = os.Getenv("UCLOUD_SUBNET_ID")
 	}
 	return uApi, nil
-}
-
-func getMyself() (*metadata.Metadata, error) {
-	client := metadata.NewClient()
-	md, err := client.GetInstanceIdentityDocument()
-	if err != nil {
-		ulog.Errorf("Get instance metadata error: %v", err)
-		return nil, err
-	} else {
-		return &md, nil
-	}
 }

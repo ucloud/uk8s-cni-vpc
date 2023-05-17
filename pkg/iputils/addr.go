@@ -5,13 +5,14 @@ import (
 	"net"
 	"strings"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/vishvananda/netlink"
 )
 
 const (
 	UHostMasterInterface  = "eth0"
-	UPHostMasterInterface = "net1"
+	UPHostMasterInterface = "eth2"
 )
 
 func GetMasterInterface() string {
@@ -21,12 +22,25 @@ func GetMasterInterface() string {
 		return UHostMasterInterface
 	}
 
+	meta, err := uapi.GetMeta()
+	if err != nil {
+		ulog.Errorf("Get uhost metadata error: %v", err)
+		return UHostMasterInterface
+	}
+
+	var targetInterface string
+	if strings.HasPrefix(meta.InstanceId, "upm") {
+		targetInterface = UPHostMasterInterface
+	} else {
+		targetInterface = UHostMasterInterface
+	}
+
 	for _, iface := range list {
-		if iface.Name == UPHostMasterInterface {
-			return UPHostMasterInterface
+		if iface.Name == targetInterface {
+			return targetInterface
 		}
 	}
-	return UHostMasterInterface
+	return targetInterface
 }
 
 // Get node master network interface ip and mac address
