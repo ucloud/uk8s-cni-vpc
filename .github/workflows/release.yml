@@ -19,13 +19,10 @@ jobs:
         go-version: 1.20.4
 
     - name: Build CNI
-      run: make build
-
-    - name: Build ipamctl
-      run: make build-ipamctl
+      run: make build-cni
 
     - name: Pack
-      run: zip -r cnivpc.zip ./bin LLICENSE
+      run: zip -r cnivpc.zip ./bin LICENSE README.md
 
     - name: Create release
       uses: softprops/action-gh-release@v1
