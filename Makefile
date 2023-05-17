@@ -32,7 +32,7 @@ CWD:=$(shell pwd)
 
 DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.20.4)
 
-all: build-cni build-ipamd build-vip-controller
+all: cni
 
 .PHONY: build-cni
 build-cni:
@@ -46,26 +46,22 @@ build-ipamd:
 build-vip-controller:
 	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
 
-.PHONY: docker-build-bash
-docker-build-bash:
-	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) bash
+.PHONY: cni
+cni:
+	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make build-cni
 
-.PHONY: docker-build
-docker-build:
-	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make
-
-.PHONY: docker-base
-docker-base:
+.PHONY: base
+base:
 	$(DOCKER_CMD) build -t $(DOCKER_BASE_IMAGE) -f dockerfiles/base/Dockerfile .
 	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
 
-.PHONY: docker-ipamd
-docker-ipamd:
+.PHONY: ipamd
+ipamd:
 	$(DOCKER_CMD) build -t $(IPAMD_IMAGE) -f dockerfiles/ipamd/Dockerfile .
 	@echo "Successfully built image: ${IPAMD_IMAGE}"
 
-.PHONY: docker-vip-controller
-docker-vip-controller:
+.PHONY: vip-controller
+vip-controller:
 	$(DOCKER_CMD) build -t $(VIP_CONTROLLER_IMAGE) -f dockerfiles/vip-controller/Dockerfile .
 	@echo "Successfully built image: ${VIP_CONTROLLER_IMAGE}"
 
