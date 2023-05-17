@@ -45,14 +45,14 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 	// Create a new UCloud NetworkInterface
 	id, err := s.uapiCreateUNI(pod, cfg)
 	if err != nil {
-		ulog.Errorf("Cannot allocate UNI from unetwork service, %v", err)
+		ulog.Errorf("Allocate UNI from unetwork service error: %v", err)
 		return nil, err
 	}
 
 	// Set up UNI for pod
 	uni, err := s.setupUNI(id, netNS)
 	if err != nil {
-		ulog.Errorf("Failed to setup UNI %v for pod %s/%s, %v, give UNI %v back", uni.InterfaceId, pod.Name, pod.Namespace, err, uni.InterfaceId)
+		ulog.Errorf("Setup UNI %v for pod %s/%s error: %v, give UNI back", uni.InterfaceId, pod.Name, pod.Namespace, err)
 		// Rollback uni resource
 		s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 		return nil, err
@@ -62,7 +62,7 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 	if len(cfg.EIPId) == 0 {
 		eip, err := s.uapiAllocateEIP(pod, cfg)
 		if err != nil {
-			ulog.Errorf("Failed to allocate EIP for pod %s/%s, %v", pod.Name, pod.Namespace, err)
+			ulog.Errorf("Allocate EIP for pod %s/%s error: %v", pod.Name, pod.Namespace, err)
 			// Rollback uni resource
 			s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 			return nil, err
@@ -74,7 +74,7 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 
 	err = s.uapiBindEIPForUNI(eipId, uni.InterfaceId)
 	if err != nil {
-		ulog.Errorf("Failed to bind EIP for pod %s/%s in uni %v, %v", pod.Name, pod.Namespace, uni.InterfaceId, err)
+		ulog.Errorf("Bind EIP for pod %s/%s in uni %v error: %v", pod.Name, pod.Namespace, uni.InterfaceId, err)
 		s.rollBackUNI(string(pod.UID), uni.InterfaceId)
 		return nil, err
 	}
@@ -88,13 +88,13 @@ func (s *ipamServer) setupDedicatedUNIForPod(pod *v1.Pod, netNS string, cfg *EIP
 		}
 		err = s.setPodAnnotation(pod, annotations)
 		if err != nil {
-			ulog.Warnf("cannot update annotation for pod %s/%s:%v", pod.Name, pod.Namespace, err)
+			ulog.Warnf("Update annotation for pod %s/%s error: %v", pod.Name, pod.Namespace, err)
 		}
 		ulog.Infof("Pod %s/%s, network namespace %s now has dedicated UNI %s, and EIP %s is bound", pod.Name, pod.Namespace, netNS, uni.InterfaceId,
 			eipId)
 		return uni, nil
 	} else {
-		ulog.Errorf("Cannot update uni %s, %v", uni.InterfaceId, err)
+		ulog.Errorf("Update uni %s error: %v", uni.InterfaceId, err)
 		return nil, err
 	}
 }
@@ -103,7 +103,7 @@ func (s *ipamServer) rollBackUNI(podUID string, interfaceId string) {
 	go func() {
 		e := s.releaseUNI(string(podUID), interfaceId)
 		if e != nil {
-			ulog.Errorf("Release uni %s failed, %v", interfaceId, e)
+			ulog.Errorf("Release uni %s error: %v", interfaceId, e)
 		}
 	}()
 }
@@ -113,7 +113,7 @@ func (s *ipamServer) tearDownDedicatedUNIForPod(pNet *rpc.PodNetwork) error {
 	// Get the pid of the pause process inside the pod
 	p, err := s.store.Get(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
 	if err != nil {
-		ulog.Errorf("Cannot get pod %s network information, %v", pNet.PodName+"/"+pNet.PodNS, err)
+		ulog.Errorf("Get pod %s network information error: %v", pNet.PodName+"/"+pNet.PodNS, err)
 		return err
 	}
 	if p == nil {
@@ -148,7 +148,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	// Attach UNI to UHost
 	err = s.uapiAttachUNI(s.hostId, id)
 	if err != nil {
-		ulog.Errorf("Attach UNI %v to %v failed, %v", id, s.hostId, err)
+		ulog.Errorf("Attach UNI %v to %v error: %v", id, s.hostId, err)
 		return nil, err
 	}
 	uni, _ := s.uapiDescribeUNI(id)
@@ -159,7 +159,7 @@ func (s *ipamServer) setupUNI(id string, netNS string) (*vpc.NetworkInterface, e
 	// Modify MTU
 	err = netlink.LinkSetMTU(link, defaultMtu)
 	if err != nil {
-		ulog.Errorf("Cannot modify mtu for link %v, %v", link.Attrs().Name, err)
+		ulog.Errorf("Modify mtu for link %v error: %v", link.Attrs().Name, err)
 		return nil, err
 	}
 	// Move link to pod's namespace
@@ -280,13 +280,13 @@ func (s *ipamServer) releaseUNI(podUid, uniId string) error {
 					}
 				}
 			} else {
-				ulog.Warnf("Cannot describe eip %s, %v", eip, err)
+				ulog.Warnf("Describe eip %s error: %v", eip, err)
 			}
 		}
 		// Detach UNI
 		err := s.uapiDetachUNI(uni.AttachInstanceId, uni.InterfaceId)
 		if err != nil {
-			ulog.Errorf("Failed to detach UNI %s from %s, %v", uni.InterfaceId, uni.AttachInstanceId, err)
+			ulog.Errorf("Detach UNI %s from %s error: %v", uni.InterfaceId, uni.AttachInstanceId, err)
 			return err
 		}
 	}
@@ -306,7 +306,7 @@ func findInterfaceOfUNI(uni *vpc.NetworkInterface, handler *netlink.Handle) (net
 	}
 
 	if err != nil {
-		ulog.Errorf("Cannot list all interfaces, %v", err)
+		ulog.Errorf("List all interfaces error: %v", err)
 		return nil, err
 	}
 

@@ -114,7 +114,7 @@ func reconcileDetachedVip() {
 func vipCheckAndClean() {
 	vipClient, err := kubeclient.GetCRD()
 	if err != nil {
-		ulog.Errorf("Cannot get clientset for crd vpcipclaim, %v", err)
+		ulog.Errorf("Get clientset for crd vpcipclaim error: %v", err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func vipCheckAndClean() {
 	vipList, err := vipClient.VipcontrollerV1beta1().VpcIpClaims(v1.NamespaceAll).List(context.TODO(),
 		metav1.ListOptions{LabelSelector: "attached=false", Limit: defaultListCRDLimit})
 	if err != nil {
-		ulog.Errorf("Cannot list all detached vpcipclaims, %v", err)
+		ulog.Errorf("List all detached vpcipclaims error: %v", err)
 	}
 
 	for _, vpcip := range vipList.Items {
@@ -132,14 +132,14 @@ func vipCheckAndClean() {
 				if detachTime.Add(release).Before(time.Now()) {
 					kubeClient, err := kubeclient.Get()
 					if err != nil {
-						ulog.Errorf("Cannot get kube client to check pod, %v", err)
+						ulog.Errorf("Get kube client to check pod error: %v", err)
 					}
 					notRunning, err := ensureStaticIpPodNotRunning(kubeClient, vpcip.Namespace, vpcip.Name)
 					if err == nil && notRunning {
 						ulog.Infof("VpcIpclaim %s/%s %s has reached release time, will be deleted", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip)
 						err = vipClient.VipcontrollerV1beta1().VpcIpClaims(vpcip.Namespace).Delete(context.TODO(), vpcip.Name, metav1.DeleteOptions{})
 						if err != nil {
-							ulog.Errorf("Delete vpcipclaim %s/%s %s failed, %v", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip, err)
+							ulog.Errorf("Delete vpcipclaim %s/%s %s error: %v", vpcip.Namespace, vpcip.Name, vpcip.Spec.Ip, err)
 						}
 					}
 				}

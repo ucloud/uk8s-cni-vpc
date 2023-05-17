@@ -86,10 +86,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 	releaseLock := lockfile.MustAcquire()
 	defer releaseLock()
 
-	ulog.Infof("cmdAdd, %s", cmdArgsString(args))
+	ulog.Infof("CmdAdd, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
-		ulog.Errorf("Failed to parse cmdAdd config: %v", err)
+		ulog.Errorf("Parse cmdAdd config error: %v", err)
 		return fmt.Errorf("failed to parse cmdadd config: %v", err)
 	}
 
@@ -103,27 +103,27 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// To assign a VPC IP for pod
 	pNet, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
 	if err != nil {
-		ulog.Errorf("Cannot assign a vpc ip for pod %s/%s, %v", podName, podNS, err)
+		ulog.Errorf("Assign a vpc ip for pod %s/%s error: %v", podName, podNS, err)
 		return fmt.Errorf("failed to assign ip: %v", err)
 	}
 
 	rollbackReleaseIP := func() {
 		err = releasePodIp(podName, podNS, sandBoxId, pNet)
 		if err != nil {
-			ulog.Errorf("Failed to release ip %s after failure, ip might leak: %v", pNet.VPCIP, err)
+			ulog.Errorf("Release ip %s after failure error: %v, ip might leak", pNet.VPCIP, err)
 		}
 	}
 
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
-			ulog.Errorf("Cannot enable %s proxy arp:%v", masterInterface, err)
+			ulog.Errorf("Enable %s proxy arp error: %v", masterInterface, err)
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to enable proxy arp: %v", err)
 		}
 		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), iputils.GetMasterInterface())
 		if err != nil {
-			ulog.Errorf("Failed to detect conflict for ip %v of pod %v, err %v", pNet.VPCIP, podName, err)
+			ulog.Errorf("Detect conflict for ip %v of pod %v error: %v", pNet.VPCIP, podName, err)
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to detect conflict: %v", err)
 		}
@@ -138,7 +138,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if !pNet.DedicatedUNI {
 		err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pNet)
 		if err != nil {
-			ulog.Errorf("Cannot setup pod veth network, %v", err)
+			ulog.Errorf("Setup pod veth network error: %v", err)
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to setup veth network: %v", err)
 		}
@@ -147,7 +147,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	//ip_local_port_range
 	err = setNodePortRange(podName, podNS, netNS, sandBoxId, pNet)
 	if err != nil {
-		ulog.Errorf("Cannot set node port range network, %v", err)
+		ulog.Errorf("Set node port range network error: %v", err)
 		rollbackReleaseIP()
 		return fmt.Errorf("failed to set node port: %v", err)
 	}
@@ -182,7 +182,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	err = addPodNetworkRecord(podName, podNS, sandBoxId, pNet)
 	if err != nil {
-		ulog.Warnf("Failed to record pod network info for %s/%s, sandbox: %s", podName, podNS, sandBoxId)
+		ulog.Warnf("Record pod network info for %s/%s, sandbox: %s, error: %v", podName, podNS, sandBoxId, err)
 	}
 	// Fill result routes
 	ulog.Infof("[Result]: %+v", result)
@@ -199,10 +199,10 @@ func cmdDel(args *skel.CmdArgs) error {
 	releaseLock := lockfile.MustAcquire()
 	defer releaseLock()
 
-	ulog.Infof("cmdDel, %s", cmdArgsString(args))
+	ulog.Infof("CmdDel, %s", cmdArgsString(args))
 	conf, err := config.ParsePlugin(args.StdinData)
 	if err != nil {
-		ulog.Errorf("Failed to parse cmdDel config: %v", err)
+		ulog.Errorf("Parse cmdDel config error: %v", err)
 		return err
 	}
 	podArgs := loadSandboxArgs(args.Args)
@@ -214,7 +214,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	pNet, err := getPodNetworkRecord(podName, podNS, sandBoxId)
 	if err != nil {
 		// podIP may be deleted in previous CNI DEL action
-		ulog.Warnf("Failed to get pod ip from local storage for pods %s, sandbox %v, %v", podName, sandBoxId, err)
+		ulog.Warnf("Get pod IP from local storage for pods %s, sandbox %v error: %v", podName, sandBoxId, err)
 		return nil
 	}
 	// podIP may be deleted in previous CNI DEL action
@@ -226,7 +226,7 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 		err = delPodNetworkRecord(podName, podNS, sandBoxId, pNet)
 		if err != nil {
-			ulog.Warnf("Failed to delete pod network record of %s/%s, %v", podName, podNS, err)
+			ulog.Warnf("Delete pod network record of %s/%s error: %v", podName, podNS, err)
 		}
 	}
 

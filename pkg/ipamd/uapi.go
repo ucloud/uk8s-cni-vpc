@@ -161,7 +161,7 @@ func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
 	req.UHostIds = []string{}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
-		ulog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
+		ulog.Errorf("DescribeUHostInstance for %v error: %v", instanceId, err)
 		return instanceId, nil
 	}
 
@@ -200,7 +200,7 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 			if resp != nil && resp.GetRetCode() == UAPIErrorSubnetNotEnough {
 				return ips, ErrOutOfIP
 			}
-			ulog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
+			ulog.Errorf("Invoke API AllocateSecondaryIp, response id %v, error: %v", resp.GetRequestUUID(), err)
 			continue
 		}
 
@@ -246,7 +246,7 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
-		ulog.Errorf("Failed to invoke API AllocateSecondaryIp, response id %v, err %v", resp.GetRequestUUID(), err)
+		ulog.Errorf("Invoke API AllocateSecondaryIp, response id %v, error: %v", resp.GetRequestUUID(), err)
 	}
 	ulog.Infof("Allocated Ip %v from unetwork api service", resp.IpInfo.Ip)
 	return &resp.IpInfo, nil
@@ -265,7 +265,7 @@ func (s *ipamServer) uapiDescribeSecondaryIp(ip, subnetId string) (*vpc.IpInfo, 
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		ulog.Errorf("Describe secondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
+		ulog.Errorf("Describe secondaryIp %s error: %v, request id %s", ip, err, resp.GetRequestUUID())
 		return nil, err
 	}
 
@@ -305,7 +305,7 @@ func (s *ipamServer) checkSecondaryIpExist(ip, mac string) (bool, error) {
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		ulog.Errorf("DescribeSecondaryIp %s failed, request id %s, %v", ip, resp.GetRequestUUID(), err)
+		ulog.Errorf("DescribeSecondaryIp %s error: %v, request id %s", ip, err, resp.GetRequestUUID())
 		return false, err
 	}
 	if len(resp.DataSet) > 0 {
@@ -403,7 +403,7 @@ func (s *ipamServer) uapiDescribeUNI(uniId string) (*vpc.NetworkInterface, error
 	req.InterfaceId = []string{uniId}
 	resp, err := cli.DescribeNetworkInterface(req)
 	if err != nil {
-		ulog.Errorf("DescribeNetworkInterface %s failed, request id %s %v", uniId, resp.GetRequestUUID(), err)
+		ulog.Errorf("DescribeNetworkInterface %s error: %v, request id %s", uniId, err, resp.GetRequestUUID())
 		return nil, err
 	}
 	if len(resp.NetworkInterfaceSet) == 0 {

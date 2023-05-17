@@ -48,7 +48,7 @@ func main() {
 
 	err := ipamd.Start()
 	if err != nil {
-		ulog.Errorf("Failed to launch ipamd service: %v", err)
+		ulog.Errorf("Launch ipamd service error: %v", err)
 		os.Exit(1)
 	}
 }

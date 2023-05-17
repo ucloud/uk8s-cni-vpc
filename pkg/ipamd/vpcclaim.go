@@ -46,7 +46,7 @@ func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId s
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		vip, localErr := s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Get(context.TODO(), vip.Name, metav1.GetOptions{})
 		if localErr != nil {
-			ulog.Infof("cannot get latest vpcipclaim  %s/%s, %v", vip.Namespace, vip.Name, localErr)
+			ulog.Infof("Get latest vpcipclaim %s/%s error: %v", vip.Namespace, vip.Name, localErr)
 			return localErr
 		}
 
@@ -75,7 +75,7 @@ func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId s
 		return localErr
 	})
 	if err != nil {
-		ulog.Errorf("Mark crd vpcipclaim %s/%s as attached failed, %v", vip.Namespace, vip.Name, err)
+		ulog.Errorf("Mark crd vpcipclaim %s/%s as attached error: %v", vip.Namespace, vip.Name, err)
 	}
 	return err
 }
@@ -135,7 +135,7 @@ func (s *ipamServer) localAttach(vip *v1beta1.VpcIpClaim, sandboxId string) (*v1
 			if err != nil {
 				return nil, fmt.Errorf("failed to allocate specify secondary ip %s in subnet %s err:%v", vip.Spec.Ip, vip.Spec.SubnetId, err)
 			}
-			ulog.Infof("success to allocate specified secondary ip %s in subnet %s", vip.Spec.Ip, vip.Spec.SubnetId)
+			ulog.Infof("Allocate specified secondary ip %s in subnet %s", vip.Spec.Ip, vip.Spec.SubnetId)
 		}
 		prevMac = vpcIp.Mac
 	} else {
@@ -146,10 +146,10 @@ func (s *ipamServer) localAttach(vip *v1beta1.VpcIpClaim, sandboxId string) (*v1
 	if prevMac != s.hostMacAddr {
 		vip.Status.Mac = s.hostMacAddr
 		if err := s.uapiMoveSecondaryIPMac(vip.Spec.Ip, prevMac, s.hostMacAddr, vip.Spec.SubnetId); err != nil {
-			ulog.Errorf("Failed to move secondary ip %s in subnet %s from %s to %s, %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr, err)
+			ulog.Errorf("Move secondary ip %s in subnet %s from %s to %s error: %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr, err)
 			return nil, fmt.Errorf("failed to move secondary ip %s in subnet %s from %s to %s, %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr, err)
 		}
-		ulog.Infof("Finished moving secondary ip %s's mac in subnet %s from %s to %s", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr)
+		ulog.Infof("Move secondary ip %s's mac in subnet %s from %s to %s", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr)
 	}
 
 	if err := s.markVPCIpClaimAttached(vip, sandboxId); err != nil {

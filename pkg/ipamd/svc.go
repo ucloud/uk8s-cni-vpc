@@ -120,7 +120,7 @@ func Start() error {
 		go func() {
 			err = startDevicePlugin()
 			if err != nil {
-				ulog.Fatalf("Cannot start device plugin for UNI: %v", err)
+				ulog.Fatalf("Start device plugin for UNI error: %v", err)
 			}
 		}()
 	}
@@ -226,7 +226,7 @@ func (s *ipamServer) initServer() {
 
 	clusterInfo, err := s.uapiListUK8SCluster()
 	if err != nil {
-		ulog.Errorf("Cannot list uk8s clusterInfo, %v", err)
+		ulog.Errorf("List uk8s clusterInfo error: %v", err)
 	} else {
 		_, svcCIDR, err := net.ParseCIDR(clusterInfo.ServiceCIDR)
 		if err != nil {
