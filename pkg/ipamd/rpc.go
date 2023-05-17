@@ -35,10 +35,10 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 	podNS := req.GetPodNamespace()
 	netNS := req.GetNetns()
 	sandboxID := req.GetSandboxID()
-	ulog.Infof("grpc: begin to assign IP for pod %s/%s", podNS, podName)
+	ulog.Infof("Begin to assign IP for pod %s/%s", podNS, podName)
 	p, err := s.getPod(podName, podNS)
 	if err != nil {
-		ulog.Errorf("Cannot get pod %s/%s, %v", podName, podNS, err)
+		ulog.Errorf("Get pod %s/%s error: %v", podName, podNS, err)
 		return &rpc.AddPodNetworkResponse{
 			Code: rpc.CNIErrorCode_CNIK8SAPIError,
 		}, status.Error(codes.Internal, err.Error())
@@ -46,7 +46,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 	if need, cfg := s.podNeedDedicatedUNI(p); need {
 		uni, err := s.setupDedicatedUNIForPod(p, netNS, cfg)
 		if err != nil {
-			ulog.Errorf("Failed to setup dedicated UNI for pod %s/%s, %v", req.GetPodName(), req.GetPodNamespace(), err)
+			ulog.Errorf("Setup dedicated UNI for pod %s/%s error: %v", req.GetPodName(), req.GetPodNamespace(), err)
 			return &rpc.AddPodNetworkResponse{
 				Code: rpc.CNIErrorCode_CNIAllocateUNIFailure,
 			}, status.Error(codes.Internal, err.Error())
@@ -84,7 +84,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 		}
 		resp := <-recv
 		if resp.Err != nil {
-			ulog.Errorf("Failed to allocate pod ip for %s, %s, %s, %v",
+			ulog.Errorf("Allocate pod ip for %s, %s, %s error: %v",
 				req.GetPodName(), req.GetPodNamespace(), req.GetSandboxID(), resp.Err)
 			return &rpc.AddPodNetworkResponse{
 				Code: rpc.CNIErrorCode_CNIAllocateSecondaryIPFailure,
@@ -93,7 +93,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 		//获取到该信息之后同时把ip信息写入到annotation
 		err = s.setAnnotationForCalicoPolicy(p, resp.PodNetwork)
 		if err != nil {
-			ulog.Errorf("Failed to setAnnotationForCalicoPolicy %s, %s, %s, %v",
+			ulog.Errorf("SetAnnotationForCalicoPolicy %s, %s, %s error: %v",
 				req.GetPodName(), req.GetPodNamespace(), req.GetSandboxID(), resp.Err)
 			return &rpc.AddPodNetworkResponse{
 				Code: rpc.CNIErrorCode_CNIAllocateSecondaryIPFailure,
@@ -147,7 +147,7 @@ func (s *ipamServer) DelPodNetwork(ctx context.Context, req *rpc.DelPodNetworkRe
 			Code: rpc.CNIErrorCode_CNISuccess,
 		}, nil
 	} else {
-		ulog.Errorf("Failed to release pod ip for %s/%s, %s, %v",
+		ulog.Errorf("Release pod ip for %s/%s, %s error: %v",
 			pNet.PodNS, pNet.PodName, pNet.SandboxID, err)
 		return &rpc.DelPodNetworkResponse{
 			Code: rpc.CNIErrorCode_CNIReleaseSecondaryIPFailure,

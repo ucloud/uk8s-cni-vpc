@@ -83,7 +83,7 @@ func (s *ipamServer) setPodAnnotation(pod *v1.Pod, pairs map[string]string) erro
 		return localErr
 	})
 	if err != nil {
-		ulog.Errorf("Cannot set annotation pair %v for pod %s/%s, %v", pairs, pod.Name, pod.Namespace, err)
+		ulog.Errorf("Set annotation pair %v for pod %s/%s error: %v", pairs, pod.Name, pod.Namespace, err)
 	}
 
 	return err
@@ -104,7 +104,7 @@ func (s *ipamServer) getLocalPods() (*v1.PodList, error) {
 func (s *ipamServer) getKubeNodeLabel(nodeName, key string) (string, error) {
 	node, err := s.getKubeNode(nodeName)
 	if err != nil {
-		ulog.Errorf("Cannot get kube node %v, %v", nodeName, err)
+		ulog.Errorf("Get kube node %v error: %v", nodeName, err)
 		return "", err
 	}
 
@@ -113,7 +113,7 @@ func (s *ipamServer) getKubeNodeLabel(nodeName, key string) (string, error) {
 		return val, nil
 	}
 
-	ulog.Warnf("Cannot find label %v for node %s", key, nodeName)
+	ulog.Warnf("Label %v for node %s not found", key, nodeName)
 	return "", fmt.Errorf("cannot find label %v for node %s", key, nodeName)
 }
 
@@ -128,7 +128,7 @@ func (s *ipamServer) getKubeNode(nodeName string) (*v1.Node, error) {
 func (s *ipamServer) getPod(podName, podNS string) (*v1.Pod, error) {
 	pod, err := s.kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		ulog.Errorf("Failed to get pod %s/%s, %v", podName, podNS, err)
+		ulog.Errorf("Get pod %s/%s error: %v", podName, podNS, err)
 		return nil, err
 	}
 	return pod, nil
@@ -190,7 +190,7 @@ func (s *ipamServer) podEnableStaticIP(podName, podNS string) (bool, *v1.Pod, er
 	statefulset := false
 	pod, err := s.getPod(podName, podNS)
 	if err != nil {
-		ulog.Errorf("Get pod failed, err: %v", err)
+		ulog.Errorf("Get pod error: %v", err)
 		return false, nil, err
 	}
 

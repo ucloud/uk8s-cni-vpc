@@ -138,13 +138,13 @@ func (c *StsController) onStsUpdate(key string) error {
 
 	vipList, err := c.vipClient.VipcontrollerV1beta1().VpcIpClaims(namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: fmt.Sprintf("owner-statefulset=%s", name)})
 	if err != nil {
-		ulog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", namespace, name, err)
+		ulog.Errorf("List vpcipclaims owned by %s/%s error: %v", namespace, name, err)
 		return err
 	}
 
 	sts, err := c.stsLister.StatefulSets(namespace).Get(name)
 	if err != nil {
-		ulog.Errorf("Cannot get statefulset %s/%s, %v", namespace, name, err)
+		ulog.Errorf("Get statefulset %s/%s error: %v", namespace, name, err)
 		// Sts may being deleted afterwards
 		if k8serr.IsNotFound(err) {
 			return nil
@@ -170,7 +170,7 @@ func (c *StsController) onStsUpdate(key string) error {
 				}
 			}
 		} else {
-			ulog.Errorf("Cannot parse idx number %s, %v", vip.Name, err)
+			ulog.Errorf("Parse idx number %s error: %v", vip.Name, err)
 			return err
 		}
 	}
@@ -195,7 +195,7 @@ func (c *StsController) onStsDelete(sts *appsv1.StatefulSet) error {
 	ulog.Infof("Mark all vpcipclaims of sts %s/%s detached", sts.Namespace, sts.Name)
 	vipList, err := c.vipClient.VipcontrollerV1beta1().VpcIpClaims(sts.Namespace).List(context.TODO(), metav1.ListOptions{LabelSelector: fmt.Sprintf("owner-statefulset=%s", sts.Name)})
 	if err != nil {
-		ulog.Errorf("Cannot list vpcipclaims owned by %s/%s, %v", sts.Namespace, sts.Name, err)
+		ulog.Errorf("List vpcipclaims owned by %s/%s error: %v", sts.Namespace, sts.Name, err)
 		return err
 	}
 
@@ -228,7 +228,7 @@ func (c *StsController) markVPCIpClaimDetached(vip *v1beta1.VpcIpClaim) error {
 		return localErr
 	})
 	if err != nil {
-		ulog.Errorf("Mark crd vpcipclaim %s/%s as detached failed, %v", vip.Namespace, vip.Name, err)
+		ulog.Errorf("Mark crd vpcipclaim %s/%s as detached error: %v", vip.Namespace, vip.Name, err)
 	}
 	return err
 }
@@ -249,7 +249,7 @@ func ensureStaticIpPodNotRunning(kubeClient clientset.Interface, namespace, name
 		if k8serr.IsNotFound(err) {
 			return true, nil
 		} else {
-			ulog.Errorf("Get pod %s/%s failed, %v", namespace, name, err)
+			ulog.Errorf("Get pod %s/%s error: %v", namespace, name, err)
 			return false, err
 		}
 	}

@@ -162,7 +162,7 @@ func (m *UNIDevicePlugin) ListAndWatch(e *pluginapi.Empty, s pluginapi.DevicePlu
 		case <-ticker.C:
 			err := s.Send(&pluginapi.ListAndWatchResponse{Devices: devs})
 			if err != nil {
-				ulog.Errorf("error send device informance: error: %v", err)
+				ulog.Errorf("Send device informance error: %v", err)
 			}
 		case <-m.stop:
 			return nil
@@ -195,7 +195,7 @@ func (m *UNIDevicePlugin) cleanup() error {
 	for _, preSock := range preSocks {
 		if uniServerSockRegex.Match([]byte(preSock.Name())) && preSock.Mode()&os.ModeSocket != 0 {
 			if err = syscall.Unlink(path.Join(pluginapi.DevicePluginPath, preSock.Name())); err != nil {
-				ulog.Errorf("error on clean up previous device plugin listens, %+v", err)
+				ulog.Errorf("Clean up previous device plugin listens error: %+v", err)
 			}
 		}
 	}
@@ -235,7 +235,7 @@ func (m *UNIDevicePlugin) watchKubeletRestart() {
 func (m *UNIDevicePlugin) Serve(resourceName string) error {
 	err := m.Start()
 	if err != nil {
-		ulog.Errorf("Could not start device plugin: %v", err)
+		ulog.Errorf("Start device plugin error: %v", err)
 		return err
 	}
 	time.Sleep(5 * time.Second)
@@ -249,7 +249,7 @@ func (m *UNIDevicePlugin) Serve(resourceName string) error {
 		},
 	)
 	if err != nil {
-		ulog.Errorf("Could not register device plugin: %v", err)
+		ulog.Errorf("Register device plugin error: %v", err)
 		m.Stop()
 		return err
 	}

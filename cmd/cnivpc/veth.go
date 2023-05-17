@@ -63,13 +63,13 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 	nl := NewNl()
 	link, err := nl.LinkByName(hostVeth)
 	if err != nil {
-		ulog.Errorf("Failed to get host veth link %v", err)
+		ulog.Errorf("Get host veth link error: %v", err)
 		return err
 	}
 	cidr := ip + "/32"
 	_, dstcidr, err := net.ParseCIDR(cidr)
 	if err != nil {
-		ulog.Errorf("Failed to parse CIDR %s: %v", cidr, err)
+		ulog.Errorf("Parse CIDR %s error: %v", cidr, err)
 		return err
 	}
 	r := netlink.Route{
@@ -100,13 +100,13 @@ func ensureProxyArp(dev string) error {
 	proxyArpCnfFile := fmt.Sprintf("/proc/sys/net/ipv4/conf/%s/proxy_arp", dev)
 	err := os.Truncate(proxyArpCnfFile, 0)
 	if err != nil {
-		ulog.Errorf("Cannot truncate file %s, %v", proxyArpCnfFile, err)
+		ulog.Errorf("Truncate file %s error: %v", proxyArpCnfFile, err)
 		return err
 	}
 	f, err := os.OpenFile(proxyArpCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	defer f.Close()
 	if err != nil {
-		ulog.Errorf("Cannot open file %s, %v", proxyArpCnfFile, err)
+		ulog.Errorf("Open file %s error: %v", proxyArpCnfFile, err)
 		return err
 	}
 	io.WriteString(f, "1")
@@ -124,21 +124,21 @@ var newIPTable = func(protocol iptables.Protocol) (iptable, error) {
 func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
-		ulog.Errorf("Failed to open netns %q: %v", netNS, err)
+		ulog.Errorf("Open netns %q error: %v", netNS, err)
 		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()
 	mface, err := netlink.LinkByName(nic)
 	if err != nil {
-		ulog.Errorf("Failed to lookup %s: %v", nic, err)
+		ulog.Errorf("Lookup %s error: %v", nic, err)
 		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("failed to lookup %s: %v", nic, err)
 	}
 
 	hostAddrs, err := netlink.AddrList(mface, netlink.FAMILY_V4)
 	if err != nil || len(hostAddrs) == 0 {
-		ulog.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
+		ulog.Errorf("Get host ip addresses for %q error: %v", mface, err)
 		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return fmt.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
 	}
@@ -147,7 +147,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		defaultMtu, hostAddrs,
 		pNet.VPCIP+"/32")
 	if err != nil {
-		ulog.Errorf("Failed to setup vethpair between host and container:%v", err)
+		ulog.Errorf("Setup vethpair between host and container error: %v", err)
 		releasePodIp(podName, podNS, sandBoxId, pNet)
 		return err
 	}
@@ -155,7 +155,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 	// Add a route rule in host when accessing pod ip go to veth
 	err = addRouteRuleForPodIp(hostVeth.Name, pNet.VPCIP)
 	if err != nil {
-		ulog.Errorf("Failed to add route rule for ip %v, err %v", pNet.VPCIP, err)
+		ulog.Errorf("Add route rule for ip %v error: %v", pNet.VPCIP, err)
 		return err
 	}
 	return nil
@@ -185,13 +185,13 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 
 		addr, err := netlink.ParseAddr(containerIp)
 		if err != nil {
-			ulog.Errorf("Netlink failed to parse container IP, %v", err)
+			ulog.Errorf("Parse container IP error: %v", err)
 			return err
 		}
 
 		err = netlink.AddrAdd(containerNetlinkIface, addr)
 		if err != nil {
-			ulog.Errorf("Netlink failed to add container IP to veth,%v", err)
+			ulog.Errorf("Add container IP to veth error: %v", err)
 			return err
 		}
 
@@ -242,7 +242,7 @@ func delHostSideVeth(podNS, podName string) error {
 	}
 	err = netlink.LinkDel(link)
 	if err != nil {
-		ulog.Warnf("Cannot delete hostside veth %s for pod %s/%s, %v", vethName, podNS, podName, err)
+		ulog.Warnf("Delete hostside veth %s for pod %s/%s error: %v", vethName, podNS, podName, err)
 		return err
 	}
 	ulog.Infof("Finished deleting hostside veth %s for pod %s/%s", vethName, podNS, podName)
@@ -260,7 +260,7 @@ func generateHostVethName(prefix, namespace, podname string) string {
 func checkAndCleanOldVeth(hostVethName string) error {
 	if oldHostVeth, err := netlink.LinkByName(hostVethName); err == nil {
 		if err = netlink.LinkDel(oldHostVeth); err != nil {
-			ulog.Errorf("Failed to delete old hostVeth %v, %v", hostVethName, err)
+			ulog.Errorf("Delete old hostVeth %v error: %v", hostVethName, err)
 			return fmt.Errorf("failed to delete old hostVeth %v: %v", hostVethName, err)
 		}
 		ulog.Infof("Finished clean old hostVeth: %v", hostVethName)

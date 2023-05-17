@@ -50,7 +50,7 @@ const (
 func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNetwork], error) {
 	db, err := storage.NewDBFileHandler(storageFile)
 	if err != nil {
-		ulog.Errorf("cannot get storage file handler:%v", err)
+		ulog.Errorf("Get storage file handler error: %v", err)
 		return nil, err
 	}
 	return storage.NewDisk[rpc.PodNetwork](dbName, db)
@@ -86,12 +86,12 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 
 	gc, err := iputils.NewGC(uapi, ipAddr, macAddr)
 	if err != nil {
-		ulog.Warnf("failed to init ip gc, error: %v, we will use an empty one", err)
+		ulog.Warnf("Init IP GC error: %v, we will use an empty one", err)
 		gc = iputils.EmptyGC(uapi, ipAddr, macAddr)
 	}
 	err = gc.Run(gc.NeedCollect(), nil)
 	if err != nil {
-		ulog.Warnf("failed to run gc, error: %v", err)
+		ulog.Warnf("Run GC error: %v", err)
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
@@ -146,7 +146,7 @@ func allocateSecondaryIP(uapi *uapi.ApiClient, macAddr string, podName, podNS, s
 
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
-		ulog.Errorf("Failed to AllocateSecondaryIp for unetwork api service, %v", err)
+		ulog.Errorf("AllocateSecondaryIp for unetwork api service error: %v", err)
 		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
@@ -184,7 +184,7 @@ func checkSecondaryIPExist(ip, mac string) (bool, error) {
 	req.SubnetId = ucloud.String(uapi.SubnetID())
 	resp, err := cli.DescribeSecondaryIp(req)
 	if err != nil {
-		ulog.Errorf("DescribeSecondaryIp %s failed, %v", ip, err)
+		ulog.Errorf("DescribeSecondaryIp %s error: %v", ip, err)
 		return false, err
 	}
 	if len(resp.DataSet) > 0 {
@@ -230,7 +230,7 @@ func getObjectIDforSecondaryIP() (string, error) {
 	req.UHostIds = []string{}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
-		ulog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
+		ulog.Errorf("DescribeUHostInstance for %v error: %v", instanceId, err)
 		return instanceId, nil
 	}
 
@@ -293,7 +293,7 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 			ulog.Warnf("Secondary ip %s has been deleted before", pNet.VPCIP)
 			return nil
 		}
-		ulog.Errorf("Delete secondary ip failed, request is %+v, err is %+v ", req, err)
+		ulog.Errorf("Delete secondary ip error: %v, request is %+v", err, req)
 	} else {
 		ulog.Infof("Delete secondary ip %s success.", pNet.VPCIP)
 	}
@@ -370,7 +370,7 @@ func addPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork)
 func addPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("cannot get storage db handler: %v", err)
+		ulog.Errorf("Get storage db handler error: %v", err)
 		releasePodIp(podName, podNS, sandBoxID, pNet)
 		return err
 	}
@@ -419,7 +419,7 @@ func delPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNet
 	}
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("cannot get storage db handler:%v", err)
+		ulog.Errorf("Get storage db handler error: %v", err)
 		return err
 	}
 	defer store.Close()
@@ -466,7 +466,7 @@ func getPodNetworkRecord(podName, podNS, sandBoxID string) (*rpc.PodNetwork, err
 func getPodNetworkRecordLocal(podName, podNS, sandBoxID string) (*rpc.PodNetwork, error) {
 	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("Cannot get storage db handler: %v", err)
+		ulog.Errorf("Get storage db handler error: %v", err)
 		return nil, err
 	}
 	defer store.Close()
@@ -492,7 +492,7 @@ func getPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 	}
 
 	if r.Code != rpc.CNIErrorCode_CNISuccess {
-		ulog.Errorf("gRPC GetPodNetworkRecord failed, code %v", r.Code)
+		ulog.Errorf("gRPC GetPodNetworkRecord error, code %v", r.Code)
 		return nil, fmt.Errorf("gRPC GetPodNetworkRecord failed, code %v", r.Code)
 	}
 	return r.GetPodNetwork(), nil

@@ -56,14 +56,14 @@ func CmdAdd(args *skel.CmdArgs, conf *config.Plugin) error {
 
 	if netConf.ContIPv4.IP != nil {
 		if err := forwardPorts(netConf, netConf.ContIPv4); err != nil {
-			ulog.Errorf("portmap CmdAdd failed: %s", err)
+			ulog.Errorf("Forward portmap error: %s", err)
 			return err
 		}
 	}
 
 	if netConf.ContIPv6.IP != nil {
 		if err := forwardPorts(netConf, netConf.ContIPv6); err != nil {
-			ulog.Errorf("portmap CmdAdd failed: %s", err)
+			ulog.Errorf("Forward ports error: %s", err)
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func CmdDel(args *skel.CmdArgs, conf *config.Plugin) error {
 	// We don't need to parse out whether or not we're using v6 or snat,
 	// deletion is idempotent
 	if err := unforwardPorts(netConf); err != nil {
-		ulog.Errorf("portmap CmdDel failed: %s", err)
+		ulog.Errorf("Unforward ports error: %s", err)
 		return err
 	}
 	return nil
