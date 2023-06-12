@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/snapshot"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -156,6 +157,18 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 	err = addRouteRuleForPodIp(hostVeth.Name, pNet.VPCIP)
 	if err != nil {
 		ulog.Errorf("Add route rule for ip %v error: %v", pNet.VPCIP, err)
+
+		// When adding a route fails, for the convenience of debugging, we use
+		// snapshot to save some output of the ip command.
+		// The snapshot will be saved to /opt/cni/snapshot/ip_route_{vpcip}
+		snapshot := snapshot.New(fmt.Sprintf("ip_route_%s", pNet.VPCIP))
+		snapshot.SetDesc("IP route after route failure")
+		snapshot.SetError(err)
+		snapshot.Add("ip", "addr")
+		snapshot.Add("ip", "link")
+		snapshot.Add("ip", "route")
+		snapshot.Save()
+
 		return err
 	}
 	return nil
