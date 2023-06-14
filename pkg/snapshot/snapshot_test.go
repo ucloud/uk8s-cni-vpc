@@ -15,5 +15,5 @@ func TestTakeSnapshot(t *testing.T) {
 	s.Add("ip", "link")
 	s.Add("ip", "route")
 
-	s.Run()
+	s.Save()
 }

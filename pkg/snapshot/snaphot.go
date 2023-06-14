@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,9 +116,15 @@ func (s *Snapshot) save() error {
 	}
 
 	path := filepath.Join(baseDir, s.name)
-	err = os.WriteFile(path, buffer.Bytes(), 0644)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("Write snapshot file content error: %v", err)
+		return fmt.Errorf("Open snapshot file error: %v", err)
+	}
+	defer file.Close()
+
+	_, err = io.Copy(file, &buffer)
+	if err != nil {
+		return fmt.Errorf("Write snapshot file error: %v", err)
 	}
 
 	return nil
