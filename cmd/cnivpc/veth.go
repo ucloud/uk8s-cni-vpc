@@ -162,11 +162,12 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		// snapshot to save some output of the ip command.
 		// The snapshot will be saved to /opt/cni/snapshot/ip_route_{vpcip}
 		snapshot := snapshot.New(fmt.Sprintf("ip_route_%s", pNet.VPCIP))
-		snapshot.SetDesc("IP route after route failure")
+		snapshot.SetDesc(fmt.Sprintf("Adding route rule failure, veth name: %s", hostVeth.Name))
 		snapshot.SetError(err)
 		snapshot.Add("ip", "addr")
 		snapshot.Add("ip", "link")
 		snapshot.Add("ip", "route")
+		snapshot.Add("ip", "netns", "list-id")
 		snapshot.Save()
 
 		return err

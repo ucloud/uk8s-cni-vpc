@@ -14,6 +14,7 @@ func TestTakeSnapshot(t *testing.T) {
 	s.Add("ip", "addr")
 	s.Add("ip", "link")
 	s.Add("ip", "route")
+	s.Add("ip", "netns", "list-id")
 
 	s.Save()
 }
