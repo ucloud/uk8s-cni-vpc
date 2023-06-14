@@ -79,19 +79,9 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to init uapi client: %v", err)
 	}
-	ipAddr, macAddr, err := iputils.GetNodeAddress("")
+	macAddr, err := iputils.GetNodeMacAddress("")
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get addr: %v", err)
-	}
-
-	gc, err := iputils.NewGC(uapi, ipAddr, macAddr)
-	if err != nil {
-		ulog.Warnf("Init IP GC error: %v, we will use an empty one", err)
-		gc = iputils.EmptyGC(uapi, ipAddr, macAddr)
-	}
-	err = gc.Run(gc.NeedCollect(), nil)
-	if err != nil {
-		ulog.Warnf("Run GC error: %v", err)
 	}
 
 	// ipamd not available, directly call vpc to allocate IP

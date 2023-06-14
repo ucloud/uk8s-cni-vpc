@@ -263,19 +263,18 @@ func (gc *GarbageCollector) collectPodIPs() ([]*PodIP, error) {
 		if pod.Spec.HostNetwork {
 			continue
 		}
-		podIPs := pod.Status.PodIPs
-		for _, podIP := range podIPs {
-			if _, ok := ipSet[podIP.IP]; ok {
-				continue
-			}
-			ipSet[podIP.IP] = struct{}{}
-
-			ips = append(ips, &PodIP{
-				Namespace: pod.Namespace,
-				Name:      pod.Name,
-				IP:        podIP.IP,
-			})
+		podIP := pod.Status.PodIP
+		if _, ok := ipSet[podIP]; ok {
+			continue
 		}
+		ips = append(ips, &PodIP{
+			Namespace: pod.Namespace,
+			Name:      pod.Name,
+			IP:        podIP,
+		})
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("unexpected ip length, should have at least one ip")
 	}
 	return ips, nil
 }
