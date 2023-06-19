@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -111,7 +111,7 @@ func (s *ipamServer) rollBackUNI(podUID string, interfaceId string) {
 func (s *ipamServer) tearDownDedicatedUNIForPod(pNet *rpc.PodNetwork) error {
 	ulog.Infof("Tear down UNI for pod %s/%s", pNet.PodName, pNet.PodNS)
 	// Get the pid of the pause process inside the pod
-	p, err := s.store.Get(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
+	p, err := s.networkDB.Get(database.PodKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
 	if err != nil {
 		ulog.Errorf("Get pod %s network information error: %v", pNet.PodName+"/"+pNet.PodNS, err)
 		return err

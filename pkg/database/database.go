@@ -11,32 +11,43 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package storage
+package database
 
-import (
-	"errors"
+import "errors"
+
+var (
+	EOF         = errors.New("No remain item to pop")
+	ErrNotFound = errors.New("Could not find this key in database")
 )
 
-var ErrEmpty = errors.New("storage is empty")
-
-// Storage persistent storage on disk
-// go get github.com/br0xen/boltbrowser
-// boltbrowser <filename>
-type Storage[T any] interface {
-	Set(key string, value *T) error
+type Database[T any] interface {
+	Put(key string, value *T) error
 	Get(key string) (*T, error)
-	List() ([]*T, error)
+
 	Delete(key string) error
-	Pop() (*T, error)
-	Len() int
+
+	Pop() (*KeyValue[T], error)
+
+	List() ([]*KeyValue[T], error)
+
+	Count() (int, error)
+
 	Close() error
 }
 
-type Item[T any] struct {
+type KeyValue[T any] struct {
 	Key   string
 	Value *T
 }
 
-func GetKey(podName, podNS, sandboxId string) string {
+func IsNotFound(err error) bool {
+	return errors.Is(err, ErrNotFound)
+}
+
+func IsEOF(err error) bool {
+	return errors.Is(err, EOF)
+}
+
+func PodKey(podName, podNS, sandboxId string) string {
 	return podName + "-" + podNS + "-" + sandboxId
 }

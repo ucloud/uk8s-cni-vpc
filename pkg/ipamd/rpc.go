@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -157,7 +157,7 @@ func (s *ipamServer) DelPodNetwork(ctx context.Context, req *rpc.DelPodNetworkRe
 
 func (s *ipamServer) AddPodNetworkRecord(ctx context.Context, req *rpc.AddPodNetworkRecordRequest) (*rpc.AddPodNetworkRecordResponse, error) {
 	pNet := req.GetPodNetwork()
-	err := s.store.Set(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID), pNet)
+	err := s.networkDB.Put(database.PodKey(pNet.PodName, pNet.PodNS, pNet.SandboxID), pNet)
 	if err == nil {
 		return &rpc.AddPodNetworkRecordResponse{
 			Code: rpc.CNIErrorCode_CNISuccess,
@@ -170,7 +170,7 @@ func (s *ipamServer) AddPodNetworkRecord(ctx context.Context, req *rpc.AddPodNet
 }
 
 func (s *ipamServer) DelPodNetworkRecord(ctx context.Context, req *rpc.DelPodNetworkRecordRequest) (*rpc.DelPodNetworkRecordResponse, error) {
-	err := s.store.Delete(storage.GetKey(req.GetPodName(), req.GetPodNS(), req.GetSandboxID()))
+	err := s.networkDB.Delete(database.PodKey(req.GetPodName(), req.GetPodNS(), req.GetSandboxID()))
 	if err == nil {
 		return &rpc.DelPodNetworkRecordResponse{
 			Code: rpc.CNIErrorCode_CNISuccess,
@@ -183,7 +183,7 @@ func (s *ipamServer) DelPodNetworkRecord(ctx context.Context, req *rpc.DelPodNet
 }
 
 func (s *ipamServer) GetPodNetworkRecord(ctx context.Context, req *rpc.GetPodNetworkRecordRequest) (*rpc.GetPodNetworkRecordResponse, error) {
-	p, err := s.store.Get(storage.GetKey(req.GetPodName(), req.GetPodNS(), req.GetSandboxID()))
+	p, err := s.networkDB.Get(database.PodKey(req.GetPodName(), req.GetPodNS(), req.GetSandboxID()))
 	if err == nil {
 		return &rpc.GetPodNetworkRecordResponse{
 			PodNetwork: p,

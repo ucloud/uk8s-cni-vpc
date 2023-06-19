@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/deviceplugin"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -74,14 +74,15 @@ func (s *ipamServer) doReconcile() {
 		return
 	}
 
-	pNets, err := s.store.List()
+	kvs, err := s.networkDB.List()
 	if err != nil {
 		ulog.Errorf("List all local pod network information error: %v", err)
 		return
 	}
 
-	orphans := make([]*rpc.PodNetwork, 0)
-	for _, pNet := range pNets {
+	orphans := make([]*database.KeyValue[rpc.PodNetwork], 0)
+	for _, kv := range kvs {
+		pNet := kv.Value
 		for idx, p := range folks.Items {
 			if p.Name == pNet.PodName && p.Namespace == pNet.PodNS {
 				if string(p.UID) == pNet.PodUID {
@@ -90,18 +91,19 @@ func (s *ipamServer) doReconcile() {
 				if len(pNet.PodUID) == 0 {
 					ulog.Infof("Complete PodUID field for record %+v", pNet)
 					pNet.PodUID = string(p.UID)
-					s.store.Set(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID), pNet)
+					s.networkDB.Put(kv.Key, pNet)
 					break
 				}
 			}
 			if idx == len(folks.Items)-1 {
-				orphans = append(orphans, pNet)
+				orphans = append(orphans, kv)
 			}
 		}
 	}
 
 	// Do garbage clean
-	for _, pNet := range orphans {
+	for _, kv := range orphans {
+		pNet := kv.Value
 		if pNet.DedicatedUNI && len(pNet.InterfaceID) > 0 {
 			ulog.Infof("Start garbage clean for %s/%s, UID:%s, UNI:%s", pNet.PodName, pNet.PodNS, pNet.PodUID, pNet.InterfaceID)
 			err = s.releaseUNI(pNet.PodUID, pNet.InterfaceID)
@@ -110,7 +112,7 @@ func (s *ipamServer) doReconcile() {
 			}
 		}
 		ulog.Infof("Delete local storage for orphan pod: %+v", pNet)
-		err = s.store.Delete(storage.GetKey(pNet.PodName, pNet.PodNS, pNet.SandboxID))
+		err = s.networkDB.Delete(kv.Key)
 		if err != nil {
 			ulog.Errorf("Delete local network storage for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
 		}
