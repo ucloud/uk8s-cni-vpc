@@ -20,18 +20,33 @@ var (
 	ErrNotFound = errors.New("Could not find this key in database")
 )
 
+// Database is a Key-Value based database interface. It is used to store data
+// that requires persistence.
+// Implementations may be disk-based, or other independent databases.
 type Database[T any] interface {
+	// Put a key-value. If the key is already exists, it will be replaced.
 	Put(key string, value *T) error
+
+	// Get a key-value. If the key is not exists, we will return `ErrNotFound`.
+	// You can use `database.IsNotFound` to check.
 	Get(key string) (*T, error)
 
+	// Delete a key-value. If the key is not exists, we won't return error.
 	Delete(key string) error
 
+	// Pop return the first key-value, and delete it. The pop order is not
+	// guaranteed (unlike traditional stack).
+	// If the database is empty and no key-value to pop, this will return `EOF`
+	// error, you can use `database.IsEOF` to check.
 	Pop() (*KeyValue[T], error)
 
+	// List returns all key-values in database.
 	List() ([]*KeyValue[T], error)
 
+	// Count returns the number of key-values in database.
 	Count() (int, error)
 
+	// Close closes the database.
 	Close() error
 }
 
