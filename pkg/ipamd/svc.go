@@ -38,7 +38,7 @@ import (
 const (
 	IpamdServiceSocket   = "/run/cni-vpc-ipamd.sock"
 	NetworkDBName        = "cni-vpc-network"
-	PoolDBName           = "cni-vpc-ip-pool"
+	PoolDBName           = "cni-vpc-pool"
 	CooldownDBName       = "cni-vpc-cooldown"
 	DefaultListenTCPPort = 7312
 )
