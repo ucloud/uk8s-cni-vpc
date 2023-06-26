@@ -22,8 +22,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
@@ -43,58 +46,49 @@ var getCmd = &cobra.Command{
 	Use:   "get <TYPE> [IP]",
 	Short: "Get or list IP info",
 
-	Args: cobra.RangeArgs(1, 2),
+	Args: cobra.MaximumNArgs(2),
 
 	RunE: func(_ *cobra.Command, args []string) error {
-		resourceType := args[0]
+		resourceType := ""
+		if len(args) >= 1 {
+			resourceType = args[0]
+		}
 		filterIP := ""
 		if len(args) >= 2 {
 			filterIP = args[1]
 		}
 
-		var value any
+		var records []Record
 		switch resourceType {
-		case "pod", "po":
-			networks, err := getPodNetwork()
+		case "":
+			ips, err := getSecondaryIP()
 			if err != nil {
 				return err
 			}
-			if filterIP != "" {
-				filtered := make([]*rpc.PodNetwork, 0, len(networks))
-				for _, network := range networks {
-					if network.VPCIP != filterIP {
-						continue
-					}
-					filtered = append(filtered, network)
+			records = make([]Record, len(ips))
+			for i, ip := range ips {
+				records[i] = ip
+			}
+
+		case "unused":
+			ips, err := getSecondaryIP()
+			if err != nil {
+				return err
+			}
+			for _, ip := range ips {
+				if ip.Unused {
+					records = append(records, ip)
 				}
-				networks = filtered
 			}
-			if len(networks) == 0 {
-				fmt.Println("Could not find pod record in current node")
-				return nil
+
+		case "pod", "po":
+			pods, err := getPodNetwork()
+			if err != nil {
+				return err
 			}
-			if getOutput == "table" {
-				table := &Table{}
-				table.Add([]string{
-					"NAMESPACE",
-					"NAME",
-					"IP",
-				})
-				for _, network := range networks {
-					row := []string{
-						network.PodNS,
-						network.PodName,
-						network.VPCIP,
-					}
-					table.Add(row)
-				}
-				table.Show()
-				return nil
-			}
-			if len(networks) == 1 {
-				value = networks[0]
-			} else {
-				value = networks
+			records = make([]Record, len(pods))
+			for i, pod := range pods {
+				records[i] = pod
 			}
 
 		case "pool":
@@ -102,58 +96,66 @@ var getCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			if filterIP != "" {
-				filtered := make([]*rpc.PoolRecord, 0, len(pool))
-				for _, ip := range pool {
-					if ip.VPCIP != filterIP {
-						continue
-					}
-					filtered = append(filtered, ip)
+			records = make([]Record, len(pool))
+			for i, ip := range pool {
+				records[i] = ip
+			}
+
+		case "cooldown", "cd":
+			pool, err := getPool()
+			if err != nil {
+				return err
+			}
+			for _, ip := range pool {
+				if ip.Cooldown {
+					records = append(records, ip)
 				}
-				pool = filtered
 			}
-			if len(pool) == 0 {
-				fmt.Println("Could not find pool record in current node")
-				return nil
+
+		case "recycle":
+			pool, err := getPool()
+			if err != nil {
+				return err
 			}
-			if getOutput == "table" {
-				table := &Table{}
-				table.Add([]string{
-					"IP",
-					"CREATE_TIME",
-					"RECYCLED",
-					"COOLDOWN",
-				})
-				for _, ip := range pool {
-					createTime := "<none>"
-					if ip.CreateTime > 0 {
-						createTime = getTimeFormat(ip.CreateTime)
-					}
-
-					recycle := "<none>"
-					if ip.Recycled && ip.RecycleTime > 0 {
-						recycle = getTimeFormat(ip.RecycleTime)
-					}
-
-					cooldown := fmt.Sprintf("%v", ip.Cooldown)
-
-					row := []string{ip.VPCIP, createTime, recycle, cooldown}
-					table.Add(row)
+			for _, ip := range pool {
+				if ip.Recycled {
+					records = append(records, ip)
 				}
-
-				table.Show()
-				return nil
-			}
-			if len(pool) == 1 {
-				value = pool[0]
-			} else {
-				value = pool
 			}
 
 		default:
 			return fmt.Errorf("Unknown resource type %s", resourceType)
 		}
+		if len(records) == 0 {
+			fmt.Println("Empty set")
+			return nil
+		}
+		if filterIP != "" {
+			filtered := make([]Record, 0, len(records))
+			for _, record := range records {
+				if record.GetIP() != filterIP {
+					continue
+				}
+				filtered = append(filtered, record)
+			}
+			records = filtered
+		}
+		if getOutput == "table" {
+			table := &Table{}
+			table.Add(records[0].Titles())
+			for _, record := range records {
+				table.Add(record.Row())
+			}
+			table.Show()
+			return nil
+		}
 
+		var value any
+		if len(records) == 1 {
+			value = records[0]
+		} else {
+			value = records
+		}
 		var err error
 		switch getOutput {
 		case "yaml", "yml":
@@ -177,7 +179,157 @@ func init() {
 	getCmd.PersistentFlags().StringVarP(&getOutput, "output", "o", "table", "Output style")
 }
 
-func getPodNetwork() ([]*rpc.PodNetwork, error) {
+type Record interface {
+	GetIP() string
+	Titles() []string
+	Row() []string
+}
+
+type SecondaryIP struct {
+	IP         string
+	CreateTime int64
+	Status     string
+	Unused     bool
+}
+
+func (s *SecondaryIP) GetIP() string {
+	return s.IP
+}
+
+func (s *SecondaryIP) Titles() []string {
+	return []string{"IP", "STATUS"}
+}
+
+func (s *SecondaryIP) Row() []string {
+	return []string{s.IP, s.Status}
+}
+
+func getSecondaryIP() ([]*SecondaryIP, error) {
+	podNetworks, err := getPodNetwork()
+	if err != nil {
+		return nil, err
+	}
+
+	pool, err := getPool()
+	if err != nil {
+		return nil, err
+	}
+
+	ipMap := make(map[string]string, len(podNetworks)+len(pool))
+	for _, network := range podNetworks {
+		ipMap[network.VPCIP] = fmt.Sprintf("pod:%s/%s", network.PodNS, network.PodName)
+	}
+	for _, ip := range pool {
+		status := "pool"
+		if ip.Cooldown {
+			status = "cooldown"
+		}
+		ipMap[ip.VPCIP] = status
+	}
+
+	ucloudClient, err := uapi.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("Create ucloud client error: %v", err)
+	}
+	vpcClient, err := ucloudClient.VPCClient()
+	if err != nil {
+		return nil, fmt.Errorf("Create vpc client error: %v", err)
+	}
+
+	mac, err := iputils.GetNodeMacAddress("")
+	if err != nil {
+		return nil, fmt.Errorf("Get mac address error: %v", err)
+	}
+
+	req := vpcClient.NewDescribeSecondaryIpRequest()
+	req.VPCId = ucloud.String(ucloudClient.VPCID())
+	req.SubnetId = ucloud.String(ucloudClient.SubnetID())
+	req.Mac = ucloud.String(mac)
+
+	resp, err := vpcClient.DescribeSecondaryIp(req)
+	if err != nil {
+		return nil, fmt.Errorf("Call UCloud API error: %v", err)
+	}
+
+	ips := make([]*SecondaryIP, len(resp.DataSet))
+	for i, ipInfo := range resp.DataSet {
+		ip := ipInfo.Ip
+		if status, ok := ipMap[ip]; ok {
+			ips[i] = &SecondaryIP{
+				IP:     ip,
+				Status: status,
+			}
+		} else {
+			ips[i] = &SecondaryIP{
+				IP:     ip,
+				Status: "<unused>",
+				Unused: true,
+			}
+		}
+	}
+
+	return ips, nil
+}
+
+type PodNetwork struct {
+	PodNS        string
+	PodName      string
+	PodUID       string
+	SandboxID    string
+	NetNS        string
+	VPCIP        string
+	VPCID        string
+	SubnetID     string
+	Gateway      string
+	Mask         string
+	MacAddress   string
+	DedicatedUNI bool
+	InterfaceID  string
+	EIPID        string
+	CreateTime   int64
+	RecycleTime  int64
+	Recycled     bool
+}
+
+func (p *PodNetwork) GetIP() string {
+	return p.VPCIP
+}
+
+func (p *PodNetwork) Titles() []string {
+	return []string{"NAMESPACE", "NAME", "IP"}
+}
+
+func (p *PodNetwork) Row() []string {
+	return []string{p.PodNS, p.PodName, p.VPCIP}
+}
+
+func convertPodNetwork(networks []*rpc.PodNetwork) []*PodNetwork {
+	records := make([]*PodNetwork, len(networks))
+	for i, network := range networks {
+		records[i] = &PodNetwork{
+			PodNS:        network.PodNS,
+			PodName:      network.PodName,
+			PodUID:       network.PodUID,
+			SandboxID:    network.SandboxID,
+			NetNS:        network.NetNS,
+			VPCIP:        network.VPCIP,
+			VPCID:        network.VPCID,
+			SubnetID:     network.SubnetID,
+			Gateway:      network.Gateway,
+			Mask:         network.Mask,
+			MacAddress:   network.MacAddress,
+			DedicatedUNI: network.DedicatedUNI,
+			InterfaceID:  network.InterfaceID,
+			EIPID:        network.EIPID,
+			CreateTime:   network.CreateTime,
+			RecycleTime:  network.RecycleTime,
+			Recycled:     network.Recycled,
+		}
+	}
+	return records
+}
+
+func getPodNetwork() ([]*PodNetwork, error) {
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	if err == nil {
 		defer conn.Close()
@@ -188,7 +340,7 @@ func getPodNetwork() ([]*rpc.PodNetwork, error) {
 			if err != nil {
 				return nil, fmt.Errorf("Call ipamd error: %v", err)
 			}
-			return resp.Networks, nil
+			return convertPodNetwork(resp.Networks), nil
 		}
 	}
 
@@ -207,10 +359,61 @@ func getPodNetwork() ([]*rpc.PodNetwork, error) {
 		return nil, fmt.Errorf("List pod network from boltdb error: %v", err)
 	}
 
-	return database.Values(kvs), nil
+	networks := database.Values(kvs)
+	return convertPodNetwork(networks), nil
 }
 
-func getPool() ([]*rpc.PoolRecord, error) {
+type PoolRecord struct {
+	VPCIP       string
+	CreateTime  int64
+	RecycleTime int64
+	Recycled    bool
+	Cooldown    bool
+}
+
+func (p *PoolRecord) GetIP() string {
+	return p.VPCIP
+}
+
+func (p *PoolRecord) Titles() []string {
+	return []string{
+		"IP",
+		"CREATE_TIME",
+		"RECYCLED",
+		"COOLDOWN",
+	}
+}
+
+func (p *PoolRecord) Row() []string {
+	createTime := "<none>"
+	if p.CreateTime > 0 {
+		createTime = getTimeFormat(p.CreateTime)
+	}
+
+	recycle := "<none>"
+	if p.Recycled && p.RecycleTime > 0 {
+		recycle = getTimeFormat(p.RecycleTime)
+	}
+
+	cooldown := fmt.Sprintf("%v", p.Cooldown)
+	return []string{p.VPCIP, createTime, recycle, cooldown}
+}
+
+func convertPoolRecord(pool []*rpc.PoolRecord) []*PoolRecord {
+	records := make([]*PoolRecord, len(pool))
+	for i, pool := range pool {
+		records[i] = &PoolRecord{
+			VPCIP:       pool.VPCIP,
+			CreateTime:  pool.CreateTime,
+			RecycleTime: pool.RecycleTime,
+			Recycled:    pool.Recycled,
+			Cooldown:    pool.Cooldown,
+		}
+	}
+	return records
+}
+
+func getPool() ([]*PoolRecord, error) {
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	if err == nil {
 		defer conn.Close()
@@ -221,7 +424,7 @@ func getPool() ([]*rpc.PoolRecord, error) {
 			if err != nil {
 				return nil, fmt.Errorf("Call ipamd error: %v", err)
 			}
-			return resp.Pool, nil
+			return convertPoolRecord(resp.Pool), nil
 		}
 	}
 
@@ -265,7 +468,8 @@ func getPool() ([]*rpc.PoolRecord, error) {
 		return nil, err
 	}
 
-	return append(pool, cooldown...), nil
+	pool = append(pool, cooldown...)
+	return convertPoolRecord(pool), nil
 }
 
 func showYaml(value any) error {
