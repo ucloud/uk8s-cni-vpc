@@ -50,6 +50,10 @@ build-vip-controller:
 cni:
 	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make build-cni
 
+.PHONY: cli
+cli:
+	CGO_ENABLED=0 go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
+
 .PHONY: base
 base:
 	$(DOCKER_CMD) build -t $(DOCKER_BASE_IMAGE) -f dockerfiles/base/Dockerfile .

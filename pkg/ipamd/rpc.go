@@ -196,6 +196,26 @@ func (s *ipamServer) GetPodNetworkRecord(ctx context.Context, req *rpc.GetPodNet
 	}
 }
 
+func (s *ipamServer) ListPodNetworkRecord(ctx context.Context, req *rpc.ListPodNetworkRecordRequest) (*rpc.ListPodNetworkRecordResponse, error) {
+	kvs, err := s.networkDB.List()
+	if err != nil {
+		return &rpc.ListPodNetworkRecordResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read pod network from db: %v", err))
+	}
+
+	resp := &rpc.ListPodNetworkRecordResponse{
+		Code:     rpc.CNIErrorCode_CNISuccess,
+		Networks: make([]*rpc.PodNetwork, len(kvs)),
+	}
+	for i, kv := range kvs {
+		network := kv.Value
+		resp.Networks[i] = network
+	}
+
+	return resp, nil
+}
+
 func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*rpc.BorrowIPResponse, error) {
 	if req.MacAddr == "" {
 		return &rpc.BorrowIPResponse{
@@ -212,4 +232,49 @@ func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*r
 		Code: rpc.CNIErrorCode_CNISuccess,
 		IP:   ip,
 	}, nil
+}
+
+func (s *ipamServer) ListPoolRecord(ctx context.Context, req *rpc.ListPoolRecordRequest) (*rpc.ListPoolRecordResponse, error) {
+	poolKvs, err := s.poolDB.List()
+	if err != nil {
+		return &rpc.ListPoolRecordResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read pool from db: %v", err))
+	}
+
+	cooldownKvs, err := s.cooldownDB.List()
+	if err != nil {
+		return &rpc.ListPoolRecordResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read cooldown from db: %v", err))
+	}
+
+	resp := &rpc.ListPoolRecordResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
+		Pool: make([]*rpc.PoolRecord, 0, len(poolKvs)+len(cooldownKvs)),
+	}
+
+	for _, kv := range poolKvs {
+		network := kv.Value
+		record := &rpc.PoolRecord{
+			VPCIP:       network.VPCIP,
+			CreateTime:  network.CreateTime,
+			RecycleTime: network.RecycleTime,
+			Recycled:    network.Recycled,
+			Cooldown:    false,
+		}
+		resp.Pool = append(resp.Pool, record)
+	}
+	for _, kv := range cooldownKvs {
+		network := kv.Value.Network
+		resp.Pool = append(resp.Pool, &rpc.PoolRecord{
+			VPCIP:       network.VPCIP,
+			CreateTime:  network.CreateTime,
+			RecycleTime: network.RecycleTime,
+			Recycled:    network.Recycled,
+			Cooldown:    true,
+		})
+	}
+
+	return resp, nil
 }

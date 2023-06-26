@@ -66,3 +66,11 @@ func IsEOF(err error) bool {
 func PodKey(podName, podNS, sandboxId string) string {
 	return podName + "-" + podNS + "-" + sandboxId
 }
+
+func Values[T any](kvs []*KeyValue[T]) []*T {
+	values := make([]*T, len(kvs))
+	for i, kv := range kvs {
+		values[i] = kv.Value
+	}
+	return values
+}
