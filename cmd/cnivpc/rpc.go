@@ -16,15 +16,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -36,24 +35,17 @@ const (
 	CNIVpcDbName       = "cni-vpc-network"
 	storageFile        = "/opt/cni/networkbolt.db"
 
-	instanceTypeCube    = "Cube"
-	instanceTypeUHost   = "UHost"
-	instanceTypeUPHost  = "UPM"
-	instanceTypeUDocker = "UDocker"
-	instanceTypeUDHost  = "UDHost"
-	instanceTypeUNI     = "UNI"
-
 	UAPIErrorIPNotExst = 58221
 )
 
 // Get local bolt db storage for cni-vpc-network
-func accessToPodNetworkDB(dbName, storageFile string) (storage.Storage[rpc.PodNetwork], error) {
-	db, err := storage.NewDBFileHandler(storageFile)
+func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.PodNetwork], error) {
+	db, err := database.BoltHandler(storageFile)
 	if err != nil {
-		ulog.Errorf("Get storage file handler error: %v", err)
+		ulog.Errorf("Create boltdb file handler error: %v", err)
 		return nil, err
 	}
-	return storage.NewDisk[rpc.PodNetwork](dbName, db)
+	return database.NewBolt[rpc.PodNetwork](dbName, db)
 }
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
@@ -116,23 +108,23 @@ func releasePodIp(podName, podNS, sandboxId string, pNet *rpc.PodNetwork) error 
 	}
 }
 
-func allocateSecondaryIP(uapi *uapi.ApiClient, macAddr string, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
-	cli, err := uapi.VPCClient()
+func allocateSecondaryIP(client *uapi.ApiClient, macAddr string, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
+	cli, err := client.VPCClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
 
 	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = &macAddr
-	ObjectId, err := getObjectIDforSecondaryIP()
+	ObjectId, err := uapi.GetObjectIDForSecondaryIP()
 	if err != nil {
-		ObjectId = uapi.InstanceID()
+		ObjectId = client.InstanceID()
 	}
 
 	req.ObjectId = ucloud.String(ObjectId)
-	req.Zone = ucloud.String(uapi.AvailabilityZone())
-	req.VPCId = ucloud.String(uapi.VPCID())
-	req.SubnetId = ucloud.String(uapi.SubnetID())
+	req.Zone = ucloud.String(client.AvailabilityZone())
+	req.VPCId = ucloud.String(client.VPCID())
+	req.SubnetId = ucloud.String(client.SubnetID())
 
 	resp, err := cli.AllocateSecondaryIp(req)
 	if err != nil {
@@ -183,59 +175,6 @@ func checkSecondaryIPExist(ip, mac string) (bool, error) {
 	return false, nil
 }
 
-func instanceType(resource string) string {
-	if strings.HasPrefix(resource, "uhost-") {
-		return instanceTypeUHost
-	} else if strings.HasPrefix(resource, "upm-") {
-		return instanceTypeUPHost
-	} else if strings.HasPrefix(resource, "docker-") {
-		return instanceTypeUDocker
-	} else if strings.HasPrefix(resource, "udhost-") {
-		return instanceTypeUDHost
-	} else if strings.HasPrefix(resource, "uni-") {
-		return instanceTypeUNI
-	} else if strings.HasPrefix(resource, "cube-") {
-		return instanceTypeCube
-	}
-
-	return "Unknown"
-}
-
-func getObjectIDforSecondaryIP() (string, error) {
-	uapi, err := uapi.NewClient()
-	if err != nil {
-		return "", err
-	}
-	instanceId := uapi.InstanceID()
-	if instanceType(instanceId) != instanceTypeUHost {
-		return instanceId, nil
-	}
-
-	cli, err := uapi.UHostClient()
-	if err != nil {
-		return "", err
-	}
-
-	req := cli.NewDescribeUHostInstanceRequest()
-	req.UHostIds = []string{}
-	resp, err := cli.DescribeUHostInstance(req)
-	if err != nil || len(resp.UHostSet) == 0 {
-		ulog.Errorf("DescribeUHostInstance for %v error: %v", instanceId, err)
-		return instanceId, nil
-	}
-
-	uhostInstance := resp.UHostSet[0]
-	for _, ipset := range uhostInstance.IPSet {
-		if ipset.Default == "true" {
-			if len(ipset.NetworkInterfaceId) > 0 {
-				return ipset.NetworkInterfaceId, nil
-			}
-		}
-	}
-
-	return instanceId, nil
-}
-
 func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 	if pNet.MacAddress == "" {
 		macAddr, err := iputils.GetNodeMacAddress("")
@@ -255,22 +194,22 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 	}
 
 	// Create UCloud api client config
-	uapi, err := uapi.NewClient()
+	client, err := uapi.NewClient()
 	if err != nil {
 		return err
 	}
-	cli, err := uapi.VPCClient()
+	cli, err := client.VPCClient()
 	if err != nil {
 		return err
 	}
 
 	req := cli.NewDeleteSecondaryIpRequest()
-	objectId, err := getObjectIDforSecondaryIP()
+	objectId, err := uapi.GetObjectIDForSecondaryIP()
 	if err != nil {
-		objectId = uapi.InstanceID()
+		objectId = client.InstanceID()
 	}
 
-	req.Zone = ucloud.String(uapi.AvailabilityZone())
+	req.Zone = ucloud.String(client.AvailabilityZone())
 	req.Mac = ucloud.String(pNet.MacAddress)
 	req.Ip = ucloud.String(pNet.VPCIP)
 	req.ObjectId = ucloud.String(objectId)
@@ -358,14 +297,13 @@ func addPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork)
 }
 
 func addPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
-	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
+	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("Get storage db handler error: %v", err)
 		releasePodIp(podName, podNS, sandBoxID, pNet)
 		return err
 	}
-	defer store.Close()
-	return store.Set(storage.GetKey(podName, podNS, sandBoxID), pNet)
+	defer db.Close()
+	return db.Put(database.PodKey(podName, podNS, sandBoxID), pNet)
 }
 
 func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
@@ -407,13 +345,12 @@ func delPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNet
 	if pNet.DedicatedUNI {
 		return nil
 	}
-	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
+	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("Get storage db handler error: %v", err)
 		return err
 	}
-	defer store.Close()
-	return store.Delete(storage.GetKey(podName, podNS, sandBoxID))
+	defer db.Close()
+	return db.Delete(database.PodKey(podName, podNS, sandBoxID))
 }
 
 func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID string) error {
@@ -454,13 +391,12 @@ func getPodNetworkRecord(podName, podNS, sandBoxID string) (*rpc.PodNetwork, err
 }
 
 func getPodNetworkRecordLocal(podName, podNS, sandBoxID string) (*rpc.PodNetwork, error) {
-	store, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
+	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		ulog.Errorf("Get storage db handler error: %v", err)
 		return nil, err
 	}
-	defer store.Close()
-	p, err := store.Get(storage.GetKey(podName, podNS, sandBoxID))
+	defer db.Close()
+	p, err := db.Get(database.PodKey(podName, podNS, sandBoxID))
 	if err != nil {
 		return nil, err
 	}

@@ -11,32 +11,33 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package storage
+package main
 
 import (
-	"errors"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
 )
 
-var ErrEmpty = errors.New("storage is empty")
+var cmd = &cobra.Command{
+	Use:   "cnivpctl",
+	Short: "CLI tools for UCloud cnivpc",
 
-// Storage persistent storage on disk
-// go get github.com/br0xen/boltbrowser
-// boltbrowser <filename>
-type Storage[T any] interface {
-	Set(key string, value *T) error
-	Get(key string) (*T, error)
-	List() ([]*T, error)
-	Delete(key string) error
-	Pop() (*T, error)
-	Len() int
-	Close() error
+	SilenceErrors: true,
+	SilenceUsage:  true,
+
+	CompletionOptions: cobra.CompletionOptions{
+		HiddenDefaultCmd: true,
+	},
 }
 
-type Item[T any] struct {
-	Key   string
-	Value *T
-}
+func main() {
+	cmd.AddCommand(getCmd, gcCmd, addCmd)
 
-func GetKey(podName, podNS, sandboxId string) string {
-	return podName + "-" + podNS + "-" + sandboxId
+	err := cmd.Execute()
+	if err != nil {
+		fmt.Printf("error: %v\n", err)
+		os.Exit(1)
+	}
 }

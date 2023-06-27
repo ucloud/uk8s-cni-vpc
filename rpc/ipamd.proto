@@ -10,8 +10,12 @@ service CNIIpam {
 	rpc AddPodNetworkRecord (AddPodNetworkRecordRequest) returns (AddPodNetworkRecordResponse) {}
 	rpc DelPodNetworkRecord (DelPodNetworkRecordRequest) returns (DelPodNetworkRecordResponse) {}
 	rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
+	rpc ListPodNetworkRecord (ListPodNetworkRecordRequest) returns (ListPodNetworkRecordResponse) {}
 
 	rpc BorrowIP(BorrowIPRequest) returns (BorrowIPResponse) {}
+
+	rpc AddPoolRecord (AddPoolRecordRequest) returns (AddPoolRecordResponse) {}
+	rpc ListPoolRecord (ListPoolRecordRequest) returns (ListPoolRecordResponse) {}
 }
 
 message PingRequest {}
@@ -96,6 +100,49 @@ message BorrowIPRequest {
 message BorrowIPResponse {
 	CNIErrorCode Code = 1;
 	PodNetwork IP = 2;
+}
+
+message ListPodNetworkRecordRequest {}
+
+message ListPodNetworkRecordResponse {
+	CNIErrorCode Code = 1;
+	repeated PodNetwork Networks = 2;
+}
+
+message ListPoolRecordRequest {}
+
+message ListPoolRecordResponse {
+	CNIErrorCode Code = 1;
+
+	repeated PoolRecord Pool = 2;
+}
+
+message PoolRecord {
+	string VPCIP = 1;
+
+	int64 CreateTime = 2;
+
+	int64 RecycleTime = 3;
+	bool Recycled = 4;
+
+	bool Cooldown = 5;
+}
+
+message AddPoolRecordRequest {
+	repeated AddPoolRecord records = 1;
+}
+
+message AddPoolRecord {
+	string Gateway = 1;
+	string IP = 2;
+	string Mac = 3;
+	string Mask = 4;
+	string SubnetID = 5;
+	string VPCID = 6;
+}
+
+message AddPoolRecordResponse {
+	CNIErrorCode Code = 1;
 }
 
 enum CNIErrorCode {

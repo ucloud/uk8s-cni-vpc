@@ -22,9 +22,9 @@ import (
 	"syscall"
 
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -37,23 +37,24 @@ import (
 
 const (
 	IpamdServiceSocket   = "/run/cni-vpc-ipamd.sock"
-	CNIVpcDbName         = "cni-vpc-network"
-	CNIVPCIpPoolDBName   = "cni-vpc-ip-pool"
+	NetworkDBName        = "cni-vpc-network"
+	PoolDBName           = "cni-vpc-ip-pool"
+	CooldownDBName       = "cni-vpc-ip-cooldown"
 	DefaultListenTCPPort = 7312
 )
 
 type ipamServer struct {
 	kubeClient *kubernetes.Clientset
 	crdClient  *crdclientset.Clientset
-	// bolt db file handler
-	db *bolt.DB
-	// *rpc.PodNetwork
-	store storage.Storage[rpc.PodNetwork]
-	// *vpc.IpInfo
-	pool     storage.Storage[rpc.PodNetwork]
-	nodeName string
 
-	cooldownSet []*cooldownIPItem
+	// bolt db file handler
+	dbHandler *bolt.DB
+
+	networkDB  database.Database[rpc.PodNetwork]
+	poolDB     database.Database[rpc.PodNetwork]
+	cooldownDB database.Database[CooldownItem]
+
+	nodeName string
 
 	conflictLock sync.Mutex
 
@@ -211,17 +212,21 @@ func (s *ipamServer) initServer() {
 		s.tcpAddr = fmt.Sprintf("%s:%d", ip, DefaultListenTCPPort)
 	}
 
-	s.db, err = storage.NewDBFileHandler(storageFile)
+	s.dbHandler, err = database.BoltHandler(storageFile)
 	if err != nil {
-		ulog.Fatalf("cannot get boltdb file  handler for %s: %v", storageFile, err)
+		ulog.Fatalf("Create boltdb file handler for %s error: %v", storageFile, err)
 	}
-	s.store, err = storage.NewDisk[rpc.PodNetwork](CNIVpcDbName, s.db)
+	s.networkDB, err = database.NewBolt[rpc.PodNetwork](NetworkDBName, s.dbHandler)
 	if err != nil {
-		ulog.Fatalf("cannot get pod network storage handler: %v", err)
+		ulog.Fatalf("Init network database error: %v", err)
 	}
-	s.pool, err = storage.NewDisk[rpc.PodNetwork](CNIVPCIpPoolDBName, s.db)
+	s.poolDB, err = database.NewBolt[rpc.PodNetwork](PoolDBName, s.dbHandler)
 	if err != nil {
-		ulog.Fatalf("cannot get vpc ip pool storage handler: %v", err)
+		ulog.Fatalf("Init vpc ip pool database error: %v", err)
+	}
+	s.cooldownDB, err = database.NewBolt[CooldownItem](CooldownDBName, s.dbHandler)
+	if err != nil {
+		ulog.Fatalf("Init cooldown database error: %v", err)
 	}
 
 	clusterInfo, err := s.uapiListUK8SCluster()
@@ -246,15 +251,15 @@ func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	sig := <-quit
 	ulog.Infof("Receive signal %+v, will stop myself gracefully", sig)
 	chanStopLoop <- true
-	ipd.doFreeIpPool()
-	ipd.doFreeCooldown()
-	ipd.store.Close()
-	ipd.pool.Close()
-	// if ipamd is updating and rollback to cni, the cni will not know how to deal with the static ip.(maybe free the static ip)
-	// so unless the user detach the ipamd through another way, the ipamd should not unInstallCNIComponent
-	//unInstallCNIComponent()
-	ulog.Infof("Good Bye!")
+
+	err := ipd.dbHandler.Close()
+	if err != nil {
+		ulog.Errorf("Close boltdb handler error: %v", err)
+	}
+
 	s.Stop()
+
+	ulog.Infof("Good Bye!")
 	ulog.Flush()
 	os.Exit(0)
 }

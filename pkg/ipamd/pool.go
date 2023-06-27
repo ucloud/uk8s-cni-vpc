@@ -27,8 +27,8 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/storage"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -53,14 +53,10 @@ func init() {
 	flag.Int64Var(&CooldownPeriodSeconds, "cooldownPeriodSeconds", 30, "period seconds to cooldown a deleted ip")
 }
 
-const (
-	outOfIpTaintKey = "ipamd-pool-out-of-ip"
-)
+type CooldownItem struct {
+	Network *rpc.PodNetwork
 
-type cooldownIPItem struct {
-	vpcIP *rpc.PodNetwork
-
-	cooldownOver int64
+	CooldownOver int64
 }
 
 type InnerAddPodNetworkRequest struct {
@@ -160,8 +156,8 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 }
 
 func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
-	val, err := s.pool.Pop()
-	if err == storage.ErrEmpty {
+	kv, err := s.poolDB.Pop()
+	if database.IsEOF(err) {
 		// The pool is empty, try to assign a new one from VPC backend
 		vpcIps, err := s.uapiAllocateSecondaryIP(1)
 		if err != nil {
@@ -196,7 +192,7 @@ func (s *ipamServer) assignPodIP() (*rpc.PodNetwork, error) {
 		return nil, err
 	}
 
-	return val, nil
+	return kv.Value, nil
 }
 
 func sendGratuitousArp(vpcip string) {
@@ -236,7 +232,11 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 	for {
 		select {
 		case <-tk:
-			size := s.pool.Len()
+			size, err := s.poolDB.Count()
+			if err != nil {
+				ulog.Errorf("Get pool size error: %v", err)
+				continue
+			}
 			switch {
 			case size < AvailablePodIPLowWatermark:
 				// The pool is below the low watermark and we need to expand the pool
@@ -293,7 +293,10 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 }
 
 func (s *ipamServer) updateStatus() error {
-	watermark := s.pool.Len()
+	watermark, err := s.poolDB.Count()
+	if err != nil {
+		return fmt.Errorf("Count pool size error: %v", err)
+	}
 	status := ipamdv1beta1.IpamdStatus{
 		Current: watermark,
 
@@ -375,8 +378,13 @@ func (s *ipamServer) appendPool(size int) {
 	for _, ip := range vpcIps {
 		sendGratuitousArp(ip.Ip)
 		pNet := convertIpToPodNetwork(ip)
-		s.pool.Set(getReservedIPKey(pNet), pNet)
-		ulog.Infof("Add ip %s to pool", ip.Ip)
+		err = s.poolDB.Put(getReservedIPKey(pNet), pNet)
+		if err != nil {
+			ulog.Errorf("Add ip %s to pool error: %v", ip.Ip, err)
+			s.backupReleaseSecondaryIP(ip.Ip)
+		} else {
+			ulog.Infof("Add ip %s to pool", ip.Ip)
+		}
 	}
 }
 
@@ -385,23 +393,24 @@ func (s *ipamServer) releasePool(size int) {
 	ulog.Infof("Pool size %d, above high watermark %d, try to release %d ip",
 		size, AvailablePodIPHighWatermark, toRelease)
 	for i := 0; i < toRelease; i++ {
-		ip, err := s.pool.Pop()
+		kv, err := s.poolDB.Pop()
 		if err != nil {
 			// If the pool is empty here, it means that someone else had consumed all ip(s)
 			// during the release process, we can safely interrupt in this case.
-			if !errors.Is(err, storage.ErrEmpty) {
+			if !database.IsEOF(err) {
 				ulog.Errorf("Pop ip error: %v", err)
 			}
 			return
 		}
+		ip := kv.Value
 		err = s.uapiDeleteSecondaryIp(ip.VPCIP)
 		if err != nil {
 			ulog.Errorf("Release secondary ip %s error: %v", ip.VPCIP, err)
 			// Failed to release the ip, we may have problem communicating with the VPC server.
 			// Put the ip back to pool to let it have chance to be released in the next loop.
-			err = s.pool.Set(getReservedIPKey(ip), ip)
+			err = s.poolDB.Put(getReservedIPKey(ip), ip)
 			if err != nil {
-				ulog.Errorf("Put secondary ip %s back to pool after releasing error: %v", ip.VPCIP, err)
+				ulog.Errorf("Put secondary ip %s back to pool after releasing failure error: %v", ip.VPCIP, err)
 			}
 			return
 		}
@@ -410,37 +419,47 @@ func (s *ipamServer) releasePool(size int) {
 
 func (s *ipamServer) cooldownIP(ip *rpc.PodNetwork) {
 	over := time.Now().Unix() + CooldownPeriodSeconds
-	ulog.Infof("Put ip %s to cooldown set, it will be recycled on %d", ip.VPCIP, over)
 	ip.RecycleTime = time.Now().Unix()
 	ip.Recycled = true
-	s.cooldownSet = append(s.cooldownSet, &cooldownIPItem{
-		vpcIP: ip,
-
-		cooldownOver: over,
+	err := s.cooldownDB.Put(getReservedIPKey(ip), &CooldownItem{
+		Network:      ip,
+		CooldownOver: over,
 	})
+	if err != nil {
+		ulog.Errorf("Add ip %s to cooldown error: %v", ip.VPCIP, err)
+		s.backupReleaseSecondaryIP(ip.VPCIP)
+	} else {
+		ulog.Infof("Put ip %s to cooldown set, it will be recycled on %d", ip.VPCIP, over)
+	}
 }
 
 func (s *ipamServer) recycleCooldownIP() {
-	if len(s.cooldownSet) == 0 {
+	kvs, err := s.cooldownDB.List()
+	if err != nil {
+		ulog.Errorf("List cooldown ips from database error: %v", err)
 		return
 	}
 
 	now := time.Now().Unix()
-	newSet := make([]*cooldownIPItem, 0, len(s.cooldownSet))
-	for _, cdIP := range s.cooldownSet {
-		if cdIP.cooldownOver >= now {
-			err := s.pool.Set(getReservedIPKey(cdIP.vpcIP), cdIP.vpcIP)
+	for _, kv := range kvs {
+		cd := kv.Value
+		if cd.CooldownOver >= now {
+			err = s.cooldownDB.Delete(kv.Key)
 			if err != nil {
-				ulog.Errorf("Recycle cooldown ip %s error: %v, it will be put back to cooldown queue", cdIP.vpcIP.VPCIP, err)
-				newSet = append(newSet, cdIP)
-				continue
+				ulog.Errorf("Delete cooldown ip %v from database error: %v", kv.Key, err)
+				return
 			}
-			ulog.Infof("Recycle cooldown ip %s to pool", cdIP.vpcIP.VPCIP)
-			continue
+
+			err = s.poolDB.Put(kv.Key, kv.Value.Network)
+			if err != nil {
+				ulog.Errorf("Put cooldown ip %v to pool error: %v", kv.Key, err)
+				s.backupReleaseSecondaryIP(kv.Value.Network.VPCIP)
+				return
+			}
+			ulog.Infof("Recycle cooldown ip %s to pool", kv.Value.Network.VPCIP)
+
 		}
-		newSet = append(newSet, cdIP)
 	}
-	s.cooldownSet = newSet
 }
 
 func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
@@ -518,48 +537,33 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 }
 
 func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
-	val, err := s.pool.Pop()
+	kv, err := s.poolDB.Pop()
 	if err != nil {
-		if err == storage.ErrEmpty {
+		if database.IsEOF(err) {
 			return nil, errors.New("ip pool is empty")
 		}
 		return nil, fmt.Errorf("failed to pop ip from pool: %v", err)
 	}
+	val := kv.Value
 	err = s.uapiMoveSecondaryIPMac(val.VPCIP, s.hostMacAddr, newMac, val.SubnetID)
 	if err != nil {
 		// If the loan fails, we need to put the IP back into the pool, otherwise
 		// it will cause IP leakage.
-		s.pool.Set(getReservedIPKey(val), val)
+		putErr := s.poolDB.Put(kv.Key, val)
+		if putErr != nil {
+			ulog.Errorf("Put ip %v to pool after lend failure error: %v", kv.Key, err)
+			s.backupReleaseSecondaryIP(kv.Value.VPCIP)
+		}
 		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
 	}
 	return val, nil
 }
 
-func (s *ipamServer) doFreeIpPool() {
-	var free int
-	for {
-		ip, err := s.pool.Pop()
-		if err == storage.ErrEmpty {
-			ulog.Infof("Free vpc ip pool(size %d) before my death.", free)
-			return
-		}
-		if err != nil {
-			ulog.Errorf("Pop ip from pool error: %v", err)
-			return
-		}
-		s.uapiDeleteSecondaryIp(ip.VPCIP)
-		s.pool.Delete(getReservedIPKey(ip))
-		free++
+func (s *ipamServer) backupReleaseSecondaryIP(ip string) {
+	err := s.uapiDeleteSecondaryIp(ip)
+	if err != nil {
+		ulog.Errorf("Backup release ip %s error: %v, this ip will leak", ip, err)
+	} else {
+		ulog.Infof("Release ip %s after failure", ip)
 	}
-}
-
-func (s *ipamServer) doFreeCooldown() {
-	for _, cdIP := range s.cooldownSet {
-		err := s.uapiDeleteSecondaryIp(cdIP.vpcIP.VPCIP)
-		if err != nil {
-			ulog.Errorf("Delete cooldown ip %s error: %v", cdIP.vpcIP.VPCIP, err)
-			continue
-		}
-	}
-	ulog.Infof("Free vpc ip cooldown(size %d) before my death.", len(s.cooldownSet))
 }
