@@ -37,13 +37,6 @@ const (
 	ResourceTypeUNI    = "uni"
 	UAPIErrorIPNotExst = 58221
 
-	instanceTypeCube    = "Cube"
-	instanceTypeUHost   = "UHost"
-	instanceTypeUPHost  = "UPM"
-	instanceTypeUDocker = "UDocker"
-	instanceTypeUDHost  = "UDHost"
-	instanceTypeUNI     = "UNI"
-
 	UAPIErrorSubnetNotEnough = 57000
 )
 
@@ -129,54 +122,6 @@ func getRegionISP() string {
 	return "International"
 }
 
-func instanceType(resource string) string {
-	if strings.HasPrefix(resource, "uhost-") {
-		return instanceTypeUHost
-	} else if strings.HasPrefix(resource, "upm-") {
-		return instanceTypeUPHost
-	} else if strings.HasPrefix(resource, "docker-") {
-		return instanceTypeUDocker
-	} else if strings.HasPrefix(resource, "udhost-") {
-		return instanceTypeUDHost
-	} else if strings.HasPrefix(resource, "uni-") {
-		return instanceTypeUNI
-	} else if strings.HasPrefix(resource, "cube-") {
-		return instanceTypeCube
-	}
-
-	return "Unknown"
-}
-
-func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
-	instanceId := s.uapi.InstanceID()
-	if instanceType(instanceId) != instanceTypeUHost {
-		return instanceId, nil
-	}
-
-	cli, err := s.uapi.UHostClient()
-	if err != nil {
-		return "", err
-	}
-	req := cli.NewDescribeUHostInstanceRequest()
-	req.UHostIds = []string{}
-	resp, err := cli.DescribeUHostInstance(req)
-	if err != nil || len(resp.UHostSet) == 0 {
-		ulog.Errorf("DescribeUHostInstance for %v error: %v", instanceId, err)
-		return instanceId, nil
-	}
-
-	uhostInstance := resp.UHostSet[0]
-	for _, ipset := range uhostInstance.IPSet {
-		if ipset.Default == "true" {
-			if len(ipset.NetworkInterfaceId) > 0 {
-				return ipset.NetworkInterfaceId, nil
-			}
-		}
-	}
-
-	return instanceId, nil
-}
-
 func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err error) {
 	cli, err := s.uapi.VPCClient()
 	if err != nil {
@@ -185,7 +130,7 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 
 	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = ucloud.String(s.hostMacAddr)
-	ObjectId, err := s.getObjectIDforSecondaryIp()
+	ObjectId, err := uapi.GetObjectIDForSecondaryIP()
 	if err != nil {
 		ObjectId = s.hostId
 	}
@@ -234,12 +179,12 @@ func (s *ipamServer) uapiAllocateSpecifiedSecondaryIp(ip, subnet string) (ipInfo
 
 	req := cli.NewAllocateSecondaryIpRequest()
 	req.Mac = ucloud.String(s.hostMacAddr)
-	req.Ip = ucloud.String(ip) //指定IP创建
-	ObjectId, err := s.getObjectIDforSecondaryIp()
+	req.Ip = ucloud.String(ip)
+	objectId, err := uapi.GetObjectIDForSecondaryIP()
 	if err != nil {
-		ObjectId = s.hostId
+		objectId = s.hostId
 	}
-	req.ObjectId = ucloud.String(ObjectId)
+	req.ObjectId = ucloud.String(objectId)
 	req.Zone = ucloud.String(s.zoneId)
 	req.VPCId = ucloud.String(s.uapi.VPCID())
 	req.SubnetId = ucloud.String(subnet)

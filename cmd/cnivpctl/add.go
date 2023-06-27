@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -8,11 +9,13 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
+	"google.golang.org/grpc"
 )
 
 var (
-	addCount int
-	addPool  bool
+	addNum  int
+	addPool bool
 )
 
 var addCmd = &cobra.Command{
@@ -22,12 +25,53 @@ var addCmd = &cobra.Command{
 	Args: cobra.MaximumNArgs(1),
 
 	RunE: func(_ *cobra.Command, args []string) error {
+		ip := ""
+		if len(args) >= 1 {
+			ip = args[0]
+		}
+		if addNum <= 0 {
+			return fmt.Errorf("Invalid add num %d", addNum)
+		}
+
+		ips, err := allocateIP(ip, addNum)
+		if err != nil {
+			return err
+		}
+
+		if addPool {
+			conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+			if err != nil {
+				return fmt.Errorf("Dial to ipamd error: %v", err)
+			}
+			defer conn.Close()
+			client := rpc.NewCNIIpamClient(conn)
+			ctx := context.Background()
+			req := &rpc.AddPoolRecordRequest{
+				Records: make([]*rpc.AddPoolRecord, len(ips)),
+			}
+			for i, ip := range ips {
+				req.Records[i] = &rpc.AddPoolRecord{
+					Gateway:  ip.Gateway,
+					IP:       ip.Ip,
+					Mac:      ip.Mac,
+					Mask:     ip.Mask,
+					SubnetID: ip.SubnetId,
+					VPCID:    ip.VPCId,
+				}
+			}
+			_, err = client.AddPoolRecord(ctx, req)
+			if err != nil {
+				return fmt.Errorf("Call ipamd to add pool record error: %v", err)
+			}
+			fmt.Println("Add ip to pool done")
+		}
+
 		return nil
 	},
 }
 
 func init() {
-	addCmd.PersistentFlags().IntVarP(&addCount, "num", "n", 1, "The number of IP to add")
+	addCmd.PersistentFlags().IntVarP(&addNum, "num", "n", 1, "The number of IP to add")
 	addCmd.PersistentFlags().BoolVarP(&addPool, "pool", "p", false, "Add IP to ipamd pool")
 }
 
@@ -46,10 +90,16 @@ func allocateIP(ip string, n int) ([]*vpc.IpInfo, error) {
 		return nil, fmt.Errorf("Get mac address error: %v", err)
 	}
 
+	objectID, err := uapi.GetObjectIDForSecondaryIP()
+	if err != nil {
+		return nil, fmt.Errorf("Get object id error: %v", err)
+	}
+
 	req := vpcClient.NewAllocateSecondaryIpRequest()
 	req.Mac = ucloud.String(mac)
 	req.VPCId = ucloud.String(client.VPCID())
 	req.SubnetId = ucloud.String(client.SubnetID())
+	req.ObjectId = ucloud.String(objectID)
 	if ip != "" {
 		req.Ip = ucloud.String(ip)
 		n = 1

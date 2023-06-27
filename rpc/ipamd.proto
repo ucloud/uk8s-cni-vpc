@@ -14,6 +14,7 @@ service CNIIpam {
 
 	rpc BorrowIP(BorrowIPRequest) returns (BorrowIPResponse) {}
 
+	rpc AddPoolRecord (AddPoolRecordRequest) returns (AddPoolRecordResponse) {}
 	rpc ListPoolRecord (ListPoolRecordRequest) returns (ListPoolRecordResponse) {}
 }
 
@@ -125,6 +126,23 @@ message PoolRecord {
 	bool Recycled = 4;
 
 	bool Cooldown = 5;
+}
+
+message AddPoolRecordRequest {
+	repeated AddPoolRecord records = 1;
+}
+
+message AddPoolRecord {
+	string Gateway = 1;
+	string IP = 2;
+	string Mac = 3;
+	string Mask = 4;
+	string SubnetID = 5;
+	string VPCID = 6;
+}
+
+message AddPoolRecordResponse {
+	CNIErrorCode Code = 1;
 }
 
 enum CNIErrorCode {

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -231,6 +232,32 @@ func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*r
 	return &rpc.BorrowIPResponse{
 		Code: rpc.CNIErrorCode_CNISuccess,
 		IP:   ip,
+	}, nil
+}
+
+func (s *ipamServer) AddPoolRecord(ctx context.Context, req *rpc.AddPoolRecordRequest) (*rpc.AddPoolRecordResponse, error) {
+	for _, ip := range req.Records {
+		info := &vpc.IpInfo{
+			Gateway:  ip.Gateway,
+			Ip:       ip.IP,
+			Mac:      ip.Mac,
+			Mask:     ip.Mask,
+			SubnetId: ip.SubnetID,
+			VPCId:    ip.VPCID,
+		}
+		sendGratuitousArp(info.Ip)
+		pNet := convertIpToPodNetwork(info)
+		err := s.poolDB.Put(getReservedIPKey(pNet), pNet)
+		if err != nil {
+			return &rpc.AddPoolRecordResponse{
+				Code: rpc.CNIErrorCode_CNIReadDBError,
+			}, status.Error(codes.Internal, fmt.Sprintf("failed to write pool db: %v", err))
+		}
+		ulog.Infof("Add pod record (from request): %s", info.Ip)
+	}
+
+	return &rpc.AddPoolRecordResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
 	}, nil
 }
 
