@@ -12,10 +12,11 @@ service CNIIpam {
 	rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
 	rpc ListPodNetworkRecord (ListPodNetworkRecordRequest) returns (ListPodNetworkRecordResponse) {}
 
-	rpc BorrowIP(BorrowIPRequest) returns (BorrowIPResponse) {}
+	rpc BorrowIP (BorrowIPRequest) returns (BorrowIPResponse) {}
 
-	rpc AddPoolRecord (AddPoolRecordRequest) returns (AddPoolRecordResponse) {}
-	rpc ListPoolRecord (ListPoolRecordRequest) returns (ListPoolRecordResponse) {}
+	rpc DescribePool (DescribePoolRequest) returns (DescribePoolResponse) {}
+	rpc PushPool (PushPoolRequest) returns (PushPoolResponse) {}
+	rpc PopPool (PopPoolRequest) returns (PopPoolResponse) {}
 }
 
 message PingRequest {}
@@ -73,6 +74,13 @@ message GetPodNetworkRecordResponse {
 	PodNetwork PodNetwork = 2;
 }
 
+message ListPodNetworkRecordRequest {}
+
+message ListPodNetworkRecordResponse {
+	CNIErrorCode Code = 1;
+	repeated PodNetwork Networks = 2;
+}
+
 message PodNetwork {
 	string PodName = 1;
 	string PodNS = 2;
@@ -102,47 +110,31 @@ message BorrowIPResponse {
 	PodNetwork IP = 2;
 }
 
-message ListPodNetworkRecordRequest {}
+message DescribePoolRequest {}
 
-message ListPodNetworkRecordResponse {
-	CNIErrorCode Code = 1;
-	repeated PodNetwork Networks = 2;
-}
-
-message ListPoolRecordRequest {}
-
-message ListPoolRecordResponse {
+message DescribePoolResponse {
 	CNIErrorCode Code = 1;
 
-	repeated PoolRecord Pool = 2;
+	repeated PodNetwork Pool = 2;
+	repeated PodNetwork Cooldown = 3;
 }
 
-message PoolRecord {
-	string VPCIP = 1;
-
-	int64 CreateTime = 2;
-
-	int64 RecycleTime = 3;
-	bool Recycled = 4;
-
-	bool Cooldown = 5;
+message PushPoolRequest {
+	string IP = 1;
 }
 
-message AddPoolRecordRequest {
-	repeated AddPoolRecord records = 1;
-}
-
-message AddPoolRecord {
-	string Gateway = 1;
-	string IP = 2;
-	string Mac = 3;
-	string Mask = 4;
-	string SubnetID = 5;
-	string VPCID = 6;
-}
-
-message AddPoolRecordResponse {
+message PushPoolResponse {
 	CNIErrorCode Code = 1;
+	PodNetwork IP = 2;
+}
+
+message PopPoolRequest {
+	string IP = 1;
+}
+
+message PopPoolResponse {
+	CNIErrorCode Code = 1;
+	PodNetwork IP = 2;
 }
 
 enum CNIErrorCode {

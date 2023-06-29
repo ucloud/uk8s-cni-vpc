@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -235,73 +234,85 @@ func (s *ipamServer) BorrowIP(ctx context.Context, req *rpc.BorrowIPRequest) (*r
 	}, nil
 }
 
-func (s *ipamServer) AddPoolRecord(ctx context.Context, req *rpc.AddPoolRecordRequest) (*rpc.AddPoolRecordResponse, error) {
-	for _, ip := range req.Records {
-		info := &vpc.IpInfo{
-			Gateway:  ip.Gateway,
-			Ip:       ip.IP,
-			Mac:      ip.Mac,
-			Mask:     ip.Mask,
-			SubnetId: ip.SubnetID,
-			VPCId:    ip.VPCID,
-		}
-		sendGratuitousArp(info.Ip)
-		pNet := convertIpToPodNetwork(info)
-		err := s.poolDB.Put(getReservedIPKey(pNet), pNet)
-		if err != nil {
-			return &rpc.AddPoolRecordResponse{
-				Code: rpc.CNIErrorCode_CNIReadDBError,
-			}, status.Error(codes.Internal, fmt.Sprintf("failed to write pool db: %v", err))
-		}
-		ulog.Infof("Add pod record (from request): %s", info.Ip)
-	}
-
-	return &rpc.AddPoolRecordResponse{
-		Code: rpc.CNIErrorCode_CNISuccess,
-	}, nil
-}
-
-func (s *ipamServer) ListPoolRecord(ctx context.Context, req *rpc.ListPoolRecordRequest) (*rpc.ListPoolRecordResponse, error) {
+func (s *ipamServer) DescribePool(ctx context.Context, req *rpc.DescribePoolRequest) (*rpc.DescribePoolResponse, error) {
 	poolKvs, err := s.poolDB.List()
 	if err != nil {
-		return &rpc.ListPoolRecordResponse{
+		return &rpc.DescribePoolResponse{
 			Code: rpc.CNIErrorCode_CNIReadDBError,
 		}, status.Error(codes.Internal, fmt.Sprintf("failed to read pool from db: %v", err))
 	}
 
 	cooldownKvs, err := s.cooldownDB.List()
 	if err != nil {
-		return &rpc.ListPoolRecordResponse{
+		return &rpc.DescribePoolResponse{
 			Code: rpc.CNIErrorCode_CNIReadDBError,
 		}, status.Error(codes.Internal, fmt.Sprintf("failed to read cooldown from db: %v", err))
 	}
+	cooldown := make([]*rpc.PodNetwork, len(cooldownKvs))
+	for i, kv := range cooldownKvs {
+		cooldown[i] = kv.Value.Network
+	}
 
-	resp := &rpc.ListPoolRecordResponse{
+	return &rpc.DescribePoolResponse{
+		Code:     rpc.CNIErrorCode_CNISuccess,
+		Pool:     database.Values(poolKvs),
+		Cooldown: cooldown,
+	}, nil
+}
+
+func (s *ipamServer) PushPool(ctx context.Context, req *rpc.PushPoolRequest) (*rpc.PushPoolResponse, error) {
+	info, err := s.uapiEnsureSecondaryIP(req.IP)
+	if err != nil {
+		return &rpc.PushPoolResponse{
+			Code: rpc.CNIErrorCode_CNIK8SAPIError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to ensure ip: %v", err))
+	}
+
+	network := convertIpToPodNetwork(info)
+	err = s.poolDB.Put(getReservedIPKey(network), network)
+	if err != nil {
+		s.backupReleaseSecondaryIP(info.Ip)
+		return &rpc.PushPoolResponse{
+			Code: rpc.CNIErrorCode_CNIWriteDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to write pool db: %v", err))
+	}
+
+	return &rpc.PushPoolResponse{
 		Code: rpc.CNIErrorCode_CNISuccess,
-		Pool: make([]*rpc.PoolRecord, 0, len(poolKvs)+len(cooldownKvs)),
-	}
+		IP:   network,
+	}, nil
+}
 
-	for _, kv := range poolKvs {
-		network := kv.Value
-		record := &rpc.PoolRecord{
-			VPCIP:       network.VPCIP,
-			CreateTime:  network.CreateTime,
-			RecycleTime: network.RecycleTime,
-			Recycled:    network.Recycled,
-			Cooldown:    false,
+func (s *ipamServer) PopPool(ctx context.Context, req *rpc.PopPoolRequest) (*rpc.PopPoolResponse, error) {
+	var network *rpc.PodNetwork
+	var err error
+	if req.IP != "" {
+		vpcID := s.uapi.VPCID()
+		key := vpcID + "-" + req.IP
+		network, err = s.poolDB.Get(key)
+	} else {
+		var kv *database.KeyValue[rpc.PodNetwork]
+		kv, err = s.poolDB.Pop()
+		if kv != nil {
+			network = kv.Value
 		}
-		resp.Pool = append(resp.Pool, record)
 	}
-	for _, kv := range cooldownKvs {
-		network := kv.Value.Network
-		resp.Pool = append(resp.Pool, &rpc.PoolRecord{
-			VPCIP:       network.VPCIP,
-			CreateTime:  network.CreateTime,
-			RecycleTime: network.RecycleTime,
-			Recycled:    network.Recycled,
-			Cooldown:    true,
-		})
+	if err != nil {
+		return &rpc.PopPoolResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read pool db: %v", err))
 	}
 
-	return resp, nil
+	err = s.uapiDeleteSecondaryIp(network.VPCIP)
+	if err != nil {
+		s.backupPushSecondaryIP(network)
+		return &rpc.PopPoolResponse{
+			Code: rpc.CNIErrorCode_CNIReleaseSecondaryIPFailure,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to delete ip: %v", err))
+	}
+
+	return &rpc.PopPoolResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
+		IP:   network,
+	}, nil
 }

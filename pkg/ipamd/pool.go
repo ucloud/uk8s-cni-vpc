@@ -27,12 +27,11 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
+	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/ipamd/v1beta1"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
-
-	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/ipamd/v1beta1"
 
 	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -408,10 +407,7 @@ func (s *ipamServer) releasePool(size int) {
 			ulog.Errorf("Release secondary ip %s error: %v", ip.VPCIP, err)
 			// Failed to release the ip, we may have problem communicating with the VPC server.
 			// Put the ip back to pool to let it have chance to be released in the next loop.
-			err = s.poolDB.Put(getReservedIPKey(ip), ip)
-			if err != nil {
-				ulog.Errorf("Put secondary ip %s back to pool after releasing failure error: %v", ip.VPCIP, err)
-			}
+			s.backupPushSecondaryIP(ip)
 			return
 		}
 	}
@@ -493,6 +489,14 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 			// be performed.
 			continue
 		}
+		_, err = s.kubeClient.CoreV1().Nodes().Get(ctx, ipamd.Name, metav1.GetOptions{})
+		if err != nil {
+			if kerrors.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("call kube-client to get node %s: %v", ipamd.Name, err)
+		}
+
 		ipamds = append(ipamds, &ipamd)
 	}
 
@@ -509,7 +513,7 @@ func (s *ipamServer) borrowIP() (*rpc.PodNetwork, error) {
 
 	for _, ipamd := range ipamds {
 		conn, err := grpc.Dial(ipamd.Spec.Addr, grpc.WithInsecure(),
-			grpc.WithTimeout(time.Second*10))
+			grpc.WithTimeout(time.Second))
 		if err != nil {
 			ulog.Errorf("Dial ipamd %q error: %v", ipamd.Name, err)
 			continue
@@ -565,5 +569,14 @@ func (s *ipamServer) backupReleaseSecondaryIP(ip string) {
 		ulog.Errorf("Backup release ip %s error: %v, this ip will leak", ip, err)
 	} else {
 		ulog.Infof("Release ip %s after failure", ip)
+	}
+}
+
+func (s *ipamServer) backupPushSecondaryIP(network *rpc.PodNetwork) {
+	err := s.poolDB.Put(getReservedIPKey(network), network)
+	if err != nil {
+		ulog.Errorf("Backup put ip %s error: %v, this ip will leak", network.VPCIP, err)
+	} else {
+		ulog.Infof("Add ip %s after failure", network.VPCIP)
 	}
 }
