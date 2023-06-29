@@ -16,6 +16,7 @@ CNI_VERSION:=$(shell echo ${CNI_VERSION} | sed -e "s/^v//")
 export GOOS=linux
 export GO111MODULE=on
 export GOARCH=$(TARGETARCH)
+export CGO_ENABLED=0
 
 DOCKER_DEPLOY_BUCKET=uhub.service.ucloud.cn/uk8s
 DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
@@ -25,49 +26,33 @@ DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
 VIP_CONTROLLER_IMAGE:=$(DOCKER_BUCKET)/vip-controller:$(DOCKER_LABEL)
-CNI_VPC_BUILD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-build:$(DOCKER_LABEL)
 
 DOCKER_CMD:=$(shell if docker ps 2> /dev/null; then echo "docker"; else echo "sudo docker"; fi)
 CWD:=$(shell pwd)
 
-DOCKER_BASE_IMAGE:=$(if $(DOCKER_BASE_IMAGE),$(DOCKER_BASE_IMAGE),uhub.service.ucloud.cn/wxyz/cni-vpc-base:1.20.4)
-
 all: cni
-
-.PHONY: build-cni
-build-cni:
-	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
-
-.PHONY: build-ipamd
-build-ipamd:
-	go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
-
-.PHONY: build-vip-controller
-build-vip-controller:
-	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
 
 .PHONY: cni
 cni:
-	$(DOCKER_CMD) run -v $(CWD):/src -w="/src" -it $(DOCKER_BASE_IMAGE) make build-cni
-
-.PHONY: cli
-cli:
-	CGO_ENABLED=0 go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
-
-.PHONY: base
-base:
-	$(DOCKER_CMD) build -t $(DOCKER_BASE_IMAGE) -f dockerfiles/base/Dockerfile .
-	@echo "Successfully built ${DOCKER_BASE_IMAGE}"
+	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
 
 .PHONY: ipamd
 ipamd:
+	go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
 	$(DOCKER_CMD) build -t $(IPAMD_IMAGE) -f dockerfiles/ipamd/Dockerfile .
-	@echo "Successfully built image: ${IPAMD_IMAGE}"
+	$(DOCKER_CMD) push $(IPAMD_IMAGE)
+	@echo "Build done: $(IPAMD_IMAGE)"
 
 .PHONY: vip-controller
 vip-controller:
+	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
 	$(DOCKER_CMD) build -t $(VIP_CONTROLLER_IMAGE) -f dockerfiles/vip-controller/Dockerfile .
-	@echo "Successfully built image: ${VIP_CONTROLLER_IMAGE}"
+	$(DOCKER_CMD) push $(VIP_CONTROLLER_IMAGE)
+	@echo "Build done: $(VIP_CONTROLLER_IMAGE)"
+
+.PHONY: cnivpctl
+cnivpctl:
+	go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
 
 .PHONY: fmt
 fmt:

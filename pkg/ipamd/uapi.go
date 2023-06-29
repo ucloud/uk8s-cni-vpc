@@ -34,9 +34,9 @@ import (
 )
 
 const (
-	ResourceTypeUNI    = "uni"
-	UAPIErrorIPNotExst = 58221
+	ResourceTypeUNI = "uni"
 
+	UAPIErrorIPNotExst       = 58221
 	UAPIErrorSubnetNotEnough = 57000
 )
 
@@ -153,6 +153,50 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 		ips = append(ips, &(resp.IpInfo))
 	}
 	return
+}
+
+func (s *ipamServer) uapiEnsureSecondaryIP(ip string) (*vpc.IpInfo, error) {
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	if ip != "" {
+		req := cli.NewDescribeSecondaryIpRequest()
+		req.SubnetId = ucloud.String(s.uapi.SubnetID())
+		req.VPCId = ucloud.String(s.uapi.VPCID())
+		req.Ip = ucloud.String(ip)
+		req.Mac = ucloud.String(s.hostMacAddr)
+
+		resp, err := cli.DescribeSecondaryIp(req)
+		if err != nil {
+			return nil, fmt.Errorf("Describe IP error: %v", err)
+		}
+		if len(resp.DataSet) > 0 {
+			return &resp.DataSet[0], nil
+		}
+	}
+
+	req := cli.NewAllocateSecondaryIpRequest()
+	req.Mac = ucloud.String(s.hostMacAddr)
+	objectId, err := uapi.GetObjectIDForSecondaryIP()
+	if err != nil {
+		objectId = s.hostId
+	}
+	req.ObjectId = ucloud.String(objectId)
+	req.Zone = ucloud.String(s.zoneId)
+	req.VPCId = ucloud.String(s.uapi.VPCID())
+	req.SubnetId = ucloud.String(s.uapi.SubnetID())
+	if ip != "" {
+		req.Ip = ucloud.String(ip)
+	}
+
+	resp, err := cli.AllocateSecondaryIp(req)
+	if err != nil {
+		return nil, fmt.Errorf("Allocate IP error: %v", err)
+	}
+
+	return &resp.IpInfo, nil
 }
 
 func (s *ipamServer) checkIPConflict(ip string) error {
