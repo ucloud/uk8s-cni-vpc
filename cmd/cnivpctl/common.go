@@ -174,6 +174,39 @@ func ListNodes() ([]*Node, error) {
 	return nodes, nil
 }
 
+func GetNode(name string) (*Node, error) {
+	ctx := context.Background()
+
+	kubeClient, err := kubeClient()
+	if err != nil {
+		return nil, err
+	}
+	_, err = kubeClient.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, fmt.Errorf("Could not find node %q", name)
+		}
+		return nil, fmt.Errorf("Get node error: %v", err)
+	}
+
+	client, err := crdClient()
+	if err != nil {
+		return nil, err
+	}
+	ipamd, err := client.IpamdV1beta1().Ipamds("kube-system").Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("Get ipamd %q: %v", name, err)
+	}
+
+	return &Node{
+		Name:   ipamd.Spec.Node,
+		Addr:   ipamd.Spec.Addr,
+		Subnet: ipamd.Spec.Subnet,
+		Pool:   ipamd.Status.Current,
+	}, nil
+
+}
+
 type PoolRecord struct {
 	IP   string `json:"ip" yaml:"ip"`
 	Node string `json:"node" yaml:"node"`
@@ -322,6 +355,51 @@ func ListPod(nodes []*Node) ([]*PodRecord, error) {
 	return records, nil
 }
 
+type UnuseRecord struct {
+	Node     string
+	IP       string
+	SubnetID string
+}
+
+func (r *UnuseRecord) Titles() []string {
+	return []string{"IP", "SUBNET"}
+}
+
+func (r *UnuseRecord) Row() []string {
+	return []string{r.IP, r.SubnetID}
+}
+
+func (r *UnuseRecord) TitlesWide() []string { return []string{"NODE"} }
+func (r *UnuseRecord) RowWide() []string    { return []string{r.Node} }
+func (r *UnuseRecord) ID() string           { return r.IP }
+
+func ListUnuse(nodes []*Node) ([]*UnuseRecord, error) {
+	ctx := context.Background()
+	var records []*UnuseRecord
+	for _, node := range nodes {
+		client, err := node.Dial()
+		if err != nil {
+			return nil, err
+		}
+		defer node.Close()
+
+		resp, err := client.ListUnuse(ctx, &rpc.ListUnuseRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("grpc ListUnuse error: %v", err)
+		}
+
+		for _, ip := range resp.Unuse {
+			records = append(records, &UnuseRecord{
+				Node:     node.Name,
+				IP:       ip.VPCIP,
+				SubnetID: ip.SubnetID,
+			})
+		}
+	}
+
+	return records, nil
+}
+
 type Table struct {
 	ncol int
 	rows [][]string
@@ -395,4 +473,14 @@ func getAge(unix int64) string {
 	}
 
 	return fmt.Sprintf("%ds", int(age.Seconds()))
+}
+
+func Confirm(msg string, args ...any) {
+	msg = fmt.Sprintf(msg, args...)
+	fmt.Printf("%s? (y/n) ", msg)
+	var confirm string
+	fmt.Scanf("%s", &confirm)
+	if confirm != "y" {
+		os.Exit(1)
+	}
 }

@@ -290,6 +290,9 @@ func (s *ipamServer) PopPool(ctx context.Context, req *rpc.PopPoolRequest) (*rpc
 		vpcID := s.uapi.VPCID()
 		key := vpcID + "-" + req.IP
 		network, err = s.poolDB.Get(key)
+		if err == nil {
+			err = s.poolDB.Delete(key)
+		}
 	} else {
 		var kv *database.KeyValue[rpc.PodNetwork]
 		kv, err = s.poolDB.Pop()
@@ -314,5 +317,64 @@ func (s *ipamServer) PopPool(ctx context.Context, req *rpc.PopPoolRequest) (*rpc
 	return &rpc.PopPoolResponse{
 		Code: rpc.CNIErrorCode_CNISuccess,
 		IP:   network,
+	}, nil
+}
+
+func (s *ipamServer) ListUnuse(ctx context.Context, req *rpc.ListUnuseRequest) (*rpc.ListUnuseResponse, error) {
+	ips, err := s.uapiListSecondaryIP()
+	if err != nil {
+		return &rpc.ListUnuseResponse{
+			Code: rpc.CNIErrorCode_CNIK8SAPIError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to list ip: %v", err))
+	}
+
+	used, err := s.usedIP()
+	if err != nil {
+		return &rpc.ListUnuseResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read ip: %v", err))
+	}
+
+	unuse := make([]*rpc.PodNetwork, 0)
+	for _, ip := range ips {
+		if _, ok := used[ip.Ip]; ok {
+			continue
+		}
+		unuse = append(unuse, convertIpToPodNetwork(ip))
+	}
+
+	return &rpc.ListUnuseResponse{
+		Code:  rpc.CNIErrorCode_CNISuccess,
+		Unuse: unuse,
+	}, nil
+}
+
+func (s *ipamServer) ReleaseIP(ctx context.Context, req *rpc.ReleaseIPRequest) (*rpc.ReleaseIPResponse, error) {
+	used, err := s.usedIP()
+	if err != nil {
+		return &rpc.ReleaseIPResponse{
+			Code: rpc.CNIErrorCode_CNIReadDBError,
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to read ip: %v", err))
+	}
+
+	for _, ip := range req.IP {
+		if _, ok := used[ip]; ok {
+			return &rpc.ReleaseIPResponse{
+				Code: rpc.CNIErrorCode_CNIReleaseUNIFailure,
+			}, status.Error(codes.Internal, fmt.Sprintf("ip %s is still in used, can not be released", ip))
+		}
+	}
+
+	for _, ip := range req.IP {
+		err = s.uapiDeleteSecondaryIp(ip)
+		if err != nil {
+			return &rpc.ReleaseIPResponse{
+				Code: rpc.CNIErrorCode_CNIReleaseUNIFailure,
+			}, status.Error(codes.Internal, fmt.Sprintf("failed to release %s: %v", ip, err))
+		}
+	}
+
+	return &rpc.ReleaseIPResponse{
+		Code: rpc.CNIErrorCode_CNISuccess,
 	}, nil
 }

@@ -33,7 +33,7 @@ var cmd = &cobra.Command{
 }
 
 func main() {
-	cmd.AddCommand(getCmd)
+	cmd.AddCommand(getCmd, releaseCmd, popCmd, pushCmd)
 
 	err := cmd.Execute()
 	if err != nil {

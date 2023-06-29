@@ -17,6 +17,9 @@ service CNIIpam {
 	rpc DescribePool (DescribePoolRequest) returns (DescribePoolResponse) {}
 	rpc PushPool (PushPoolRequest) returns (PushPoolResponse) {}
 	rpc PopPool (PopPoolRequest) returns (PopPoolResponse) {}
+
+	rpc ListUnuse (ListUnuseRequest) returns (ListUnuseResponse) {}
+	rpc ReleaseIP (ReleaseIPRequest) returns (ReleaseIPResponse) {}
 }
 
 message PingRequest {}
@@ -135,6 +138,22 @@ message PopPoolRequest {
 message PopPoolResponse {
 	CNIErrorCode Code = 1;
 	PodNetwork IP = 2;
+}
+
+message ListUnuseRequest {}
+
+message ListUnuseResponse {
+	CNIErrorCode Code = 1;
+
+	repeated PodNetwork Unuse = 2;
+}
+
+message ReleaseIPRequest {
+	repeated string IP = 1;
+}
+
+message ReleaseIPResponse {
+	CNIErrorCode Code = 1;
 }
 
 enum CNIErrorCode {

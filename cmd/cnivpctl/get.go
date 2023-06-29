@@ -107,6 +107,13 @@ var getCmd = &cobra.Command{
 			}
 			records = convertToRecords(pool)
 
+		case "unuse":
+			unuse, err := ListUnuse(nodes)
+			if err != nil {
+				return err
+			}
+			records = convertToRecords(unuse)
+
 		default:
 			return fmt.Errorf("Unknown resource type %q", resourceType)
 		}
