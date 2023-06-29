@@ -199,6 +199,32 @@ func (s *ipamServer) uapiEnsureSecondaryIP(ip string) (*vpc.IpInfo, error) {
 	return &resp.IpInfo, nil
 }
 
+func (s *ipamServer) uapiListSecondaryIP() ([]*vpc.IpInfo, error) {
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return nil, err
+	}
+
+	req := cli.NewDescribeSecondaryIpRequest()
+	req.Mac = ucloud.String(s.hostMacAddr)
+	req.Zone = ucloud.String(s.zoneId)
+	req.VPCId = ucloud.String(s.uapi.VPCID())
+	req.SubnetId = ucloud.String(s.uapi.SubnetID())
+
+	resp, err := cli.DescribeSecondaryIp(req)
+	if err != nil {
+		return nil, fmt.Errorf("Describe IP error: %v", err)
+	}
+
+	ips := make([]*vpc.IpInfo, len(resp.DataSet))
+	for i, info := range resp.DataSet {
+		info := info
+		ips[i] = &info
+	}
+
+	return ips, nil
+}
+
 func (s *ipamServer) checkIPConflict(ip string) error {
 	s.conflictLock.Lock()
 	defer s.conflictLock.Unlock()

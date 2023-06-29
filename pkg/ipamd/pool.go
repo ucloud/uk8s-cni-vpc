@@ -563,6 +563,39 @@ func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
 	return val, nil
 }
 
+func (s *ipamServer) usedIP() (map[string]struct{}, error) {
+	poolKvs, err := s.poolDB.List()
+	if err != nil {
+		return nil, err
+	}
+	pool := database.Values(poolKvs)
+
+	cooldownKvs, err := s.cooldownDB.List()
+	if err != nil {
+		return nil, err
+	}
+	cooldown := database.Values(cooldownKvs)
+
+	networkKvs, err := s.networkDB.List()
+	if err != nil {
+		return nil, err
+	}
+	networks := database.Values(networkKvs)
+
+	used := make(map[string]struct{}, len(pool)+len(cooldown)+len(networks))
+	for _, ip := range pool {
+		used[ip.VPCIP] = struct{}{}
+	}
+	for _, ip := range cooldown {
+		used[ip.Network.VPCIP] = struct{}{}
+	}
+	for _, ip := range networks {
+		used[ip.VPCIP] = struct{}{}
+	}
+
+	return used, nil
+}
+
 func (s *ipamServer) backupReleaseSecondaryIP(ip string) {
 	err := s.uapiDeleteSecondaryIp(ip)
 	if err != nil {
