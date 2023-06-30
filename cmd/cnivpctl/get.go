@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -26,12 +27,10 @@ import (
 
 type Record interface {
 	Titles() []string
-	TitlesWide() []string
-
 	Row() []string
-	RowWide() []string
 
-	ID() string
+	GetID() string
+	GetNode() string
 }
 
 func convertToRecords(slice any) []Record {
@@ -122,7 +121,7 @@ var getCmd = &cobra.Command{
 			id := args[1]
 			newRecords := make([]Record, 0, 1)
 			for _, record := range records {
-				if strings.Contains(record.ID(), id) {
+				if strings.Contains(record.GetID(), id) {
 					newRecords = append(newRecords, record)
 				}
 			}
@@ -134,18 +133,25 @@ var getCmd = &cobra.Command{
 			return nil
 		}
 
+		sort.Slice(records, func(i, j int) bool {
+			if records[i].GetNode() == records[j].GetNode() {
+				return records[i].GetID() > records[j].GetID()
+			}
+			return records[i].GetNode() > records[j].GetNode()
+		})
+
 		if getOutput == "" || getOutput == "wide" {
 			table := &Table{}
 			titles := records[0].Titles()
-			if getOutput == "wide" {
-				titles = append(titles, records[0].TitlesWide()...)
+			if getOutput == "wide" && records[0].GetNode() != "" {
+				titles = append(titles, "NODE")
 			}
 			table.Add(titles)
 
 			for _, record := range records {
 				row := record.Row()
-				if getOutput == "wide" {
-					row = append(row, record.RowWide()...)
+				if getOutput == "wide" && record.GetNode() != "" {
+					row = append(row, record.GetNode())
 				}
 				table.Add(row)
 			}

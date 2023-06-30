@@ -7,6 +7,7 @@ require (
 	github.com/containernetworking/cni v0.8.1
 	github.com/containernetworking/plugins v0.9.1
 	github.com/coreos/go-iptables v0.6.0
+	github.com/gammazero/workerpool v1.1.3
 	github.com/j-keck/arping v1.0.2
 	github.com/mattn/go-shellwords v1.0.12
 	github.com/sirupsen/logrus v1.4.2
@@ -33,6 +34,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/evanphx/json-patch v4.9.0+incompatible // indirect
+	github.com/gammazero/deque v0.2.0 // indirect
 	github.com/go-logr/logr v0.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
