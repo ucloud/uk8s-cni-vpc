@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/gammazero/workerpool"
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
@@ -101,9 +103,8 @@ func (n *Node) Row() []string {
 	}
 }
 
-func (n *Node) TitlesWide() []string { return []string{} }
-func (n *Node) RowWide() []string    { return []string{} }
-func (n *Node) ID() string           { return n.Name }
+func (n *Node) GetID() string   { return n.Name }
+func (n *Node) GetNode() string { return "" }
 
 func (n *Node) Dial() (rpc.CNIIpamClient, error) {
 	conn, err := grpc.Dial(n.Addr, grpc.WithInsecure(), grpc.WithTimeout(time.Second))
@@ -236,47 +237,57 @@ func (r *PoolRecord) Row() []string {
 	}
 }
 
-func (r *PoolRecord) TitlesWide() []string { return []string{"NODE"} }
-func (r *PoolRecord) RowWide() []string    { return []string{r.Node} }
-func (r *PoolRecord) ID() string           { return r.IP }
+func (r *PoolRecord) GetID() string   { return r.IP }
+func (r *PoolRecord) GetNode() string { return r.Node }
 
 func ListPool(nodes []*Node) ([]*PoolRecord, error) {
 	ctx := context.Background()
 	var records []*PoolRecord
+	wp := NewWorkerpool(20)
 	for _, node := range nodes {
-		client, err := node.Dial()
-		if err != nil {
-			return nil, err
-		}
-		defer node.Close()
+		node := node
+		wp.Run(func() error {
+			client, err := node.Dial()
+			if err != nil {
+				return err
+			}
+			defer node.Close()
 
-		resp, err := client.DescribePool(ctx, &rpc.DescribePoolRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("grpc Describe pool error: %v", err)
-		}
+			resp, err := client.DescribePool(ctx, &rpc.DescribePoolRequest{})
+			if err != nil {
+				return fmt.Errorf("grpc Describe pool error: %v", err)
+			}
 
-		for _, ip := range resp.Pool {
-			records = append(records, &PoolRecord{
-				IP:           ip.VPCIP,
-				Node:         node.Name,
-				CreateTime:   ip.CreateTime,
-				Recycled:     ip.Recycled,
-				RecycledTime: ip.RecycleTime,
-				Cooldown:     false,
+			wp.SingleFlight(func() {
+				for _, ip := range resp.Pool {
+					records = append(records, &PoolRecord{
+						IP:           ip.VPCIP,
+						Node:         node.Name,
+						CreateTime:   ip.CreateTime,
+						Recycled:     ip.Recycled,
+						RecycledTime: ip.RecycleTime,
+						Cooldown:     false,
+					})
+				}
+				for _, ip := range resp.Cooldown {
+					records = append(records, &PoolRecord{
+						IP:           ip.VPCIP,
+						Node:         node.Name,
+						CreateTime:   ip.CreateTime,
+						Recycled:     ip.Recycled,
+						RecycledTime: ip.RecycleTime,
+						Cooldown:     true,
+					})
+				}
 			})
-		}
-		for _, ip := range resp.Cooldown {
-			records = append(records, &PoolRecord{
-				IP:           ip.VPCIP,
-				Node:         node.Name,
-				CreateTime:   ip.CreateTime,
-				Recycled:     ip.Recycled,
-				RecycledTime: ip.RecycleTime,
-				Cooldown:     true,
-			})
-		}
 
+			return nil
+		})
 	}
+	if err := wp.Wait(); err != nil {
+		return nil, err
+	}
+
 	return records, nil
 }
 
@@ -312,46 +323,59 @@ func (r *PodRecord) Row() []string {
 	}
 }
 
-func (r *PodRecord) TitlesWide() []string { return []string{"NODE"} }
-func (r *PodRecord) RowWide() []string    { return []string{r.Node} }
-func (r *PodRecord) ID() string           { return r.VPCIP }
+func (r *PodRecord) GetID() string   { return r.VPCIP }
+func (r *PodRecord) GetNode() string { return r.Node }
 
 func ListPod(nodes []*Node) ([]*PodRecord, error) {
 	ctx := context.Background()
 	var records []*PodRecord
+	wp := NewWorkerpool(20)
+
 	for _, node := range nodes {
-		client, err := node.Dial()
-		if err != nil {
-			return nil, err
-		}
-		defer node.Close()
+		node := node
+		wp.Run(func() error {
+			client, err := node.Dial()
+			if err != nil {
+				return err
+			}
+			defer node.Close()
 
-		resp, err := client.ListPodNetworkRecord(ctx, &rpc.ListPodNetworkRecordRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("grpc ListPodNetworkRecord error: %v", err)
-		}
+			resp, err := client.ListPodNetworkRecord(ctx, &rpc.ListPodNetworkRecordRequest{})
+			if err != nil {
+				return fmt.Errorf("grpc ListPodNetworkRecord error: %v", err)
+			}
 
-		for _, network := range resp.Networks {
-			records = append(records, &PodRecord{
-				PodNS:        network.PodNS,
-				PodName:      network.PodName,
-				PodUID:       network.PodUID,
-				SandboxID:    network.SandboxID,
-				NetNS:        network.NetNS,
-				VPCIP:        network.VPCIP,
-				VPCID:        network.VPCID,
-				SubnetID:     network.SubnetID,
-				Gateway:      network.Gateway,
-				Mask:         network.Mask,
-				MacAddress:   network.MacAddress,
-				DedicatedUNI: network.DedicatedUNI,
-				InterfaceID:  network.InterfaceID,
-				EIPID:        network.EIPID,
-				CreateTime:   network.CreateTime,
-				Node:         node.Name,
+			wp.SingleFlight(func() {
+				for _, network := range resp.Networks {
+					records = append(records, &PodRecord{
+						PodNS:        network.PodNS,
+						PodName:      network.PodName,
+						PodUID:       network.PodUID,
+						SandboxID:    network.SandboxID,
+						NetNS:        network.NetNS,
+						VPCIP:        network.VPCIP,
+						VPCID:        network.VPCID,
+						SubnetID:     network.SubnetID,
+						Gateway:      network.Gateway,
+						Mask:         network.Mask,
+						MacAddress:   network.MacAddress,
+						DedicatedUNI: network.DedicatedUNI,
+						InterfaceID:  network.InterfaceID,
+						EIPID:        network.EIPID,
+						CreateTime:   network.CreateTime,
+						Node:         node.Name,
+					})
+				}
 			})
-		}
+
+			return nil
+		})
 	}
+
+	if err := wp.Wait(); err != nil {
+		return nil, err
+	}
+
 	return records, nil
 }
 
@@ -369,32 +393,42 @@ func (r *UnuseRecord) Row() []string {
 	return []string{r.IP, r.SubnetID}
 }
 
-func (r *UnuseRecord) TitlesWide() []string { return []string{"NODE"} }
-func (r *UnuseRecord) RowWide() []string    { return []string{r.Node} }
-func (r *UnuseRecord) ID() string           { return r.IP }
+func (r *UnuseRecord) GetID() string   { return r.IP }
+func (r *UnuseRecord) GetNode() string { return r.Node }
 
 func ListUnuse(nodes []*Node) ([]*UnuseRecord, error) {
 	ctx := context.Background()
 	var records []*UnuseRecord
+	wp := NewWorkerpool(20)
 	for _, node := range nodes {
-		client, err := node.Dial()
-		if err != nil {
-			return nil, err
-		}
-		defer node.Close()
+		wp.Run(func() error {
+			client, err := node.Dial()
+			if err != nil {
+				return err
+			}
+			defer node.Close()
 
-		resp, err := client.ListUnuse(ctx, &rpc.ListUnuseRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("grpc ListUnuse error: %v", err)
-		}
+			resp, err := client.ListUnuse(ctx, &rpc.ListUnuseRequest{})
+			if err != nil {
+				return fmt.Errorf("grpc ListUnuse error: %v", err)
+			}
 
-		for _, ip := range resp.Unuse {
-			records = append(records, &UnuseRecord{
-				Node:     node.Name,
-				IP:       ip.VPCIP,
-				SubnetID: ip.SubnetID,
+			wp.SingleFlight(func() {
+				for _, ip := range resp.Unuse {
+					records = append(records, &UnuseRecord{
+						Node:     node.Name,
+						IP:       ip.VPCIP,
+						SubnetID: ip.SubnetID,
+					})
+				}
 			})
-		}
+
+			return nil
+		})
+	}
+
+	if err := wp.Wait(); err != nil {
+		return nil, err
 	}
 
 	return records, nil
@@ -483,4 +517,45 @@ func Confirm(msg string, args ...any) {
 	if confirm != "y" {
 		os.Exit(1)
 	}
+}
+
+type Workerpool struct {
+	pool *workerpool.WorkerPool
+	lock sync.Mutex
+	err  error
+}
+
+func NewWorkerpool(n int) *Workerpool {
+	return &Workerpool{
+		pool: workerpool.New(n),
+	}
+}
+
+func (wp *Workerpool) Run(action func() error) {
+	wp.pool.Submit(func() {
+		wp.lock.Lock()
+		if wp.err != nil {
+			wp.lock.Unlock()
+			return
+		}
+		wp.lock.Unlock()
+
+		err := action()
+		if err != nil {
+			wp.lock.Lock()
+			wp.err = err
+			wp.lock.Unlock()
+		}
+	})
+}
+
+func (wp *Workerpool) SingleFlight(action func()) {
+	wp.lock.Lock()
+	defer wp.lock.Unlock()
+	action()
+}
+
+func (wp *Workerpool) Wait() error {
+	wp.pool.StopWait()
+	return wp.err
 }
