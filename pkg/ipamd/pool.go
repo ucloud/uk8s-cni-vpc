@@ -377,11 +377,7 @@ func (s *ipamServer) appendPool(size int) {
 	for _, ip := range vpcIps {
 		sendGratuitousArp(ip.Ip)
 		pNet := convertIpToPodNetwork(ip)
-		err = s.poolDB.Put(getReservedIPKey(pNet), pNet)
-		if err != nil {
-			ulog.Errorf("Add ip %s to pool error: %v", ip.Ip, err)
-			s.backupReleaseSecondaryIP(ip.Ip)
-		} else {
+		if s.putIpToPool(pNet) {
 			ulog.Infof("Add ip %s to pool", ip.Ip)
 		}
 	}
@@ -417,14 +413,11 @@ func (s *ipamServer) cooldownIP(ip *rpc.PodNetwork) {
 	over := time.Now().Unix() + CooldownPeriodSeconds
 	ip.RecycleTime = time.Now().Unix()
 	ip.Recycled = true
-	err := s.cooldownDB.Put(getReservedIPKey(ip), &CooldownItem{
+	cooldown := &CooldownItem{
 		Network:      ip,
 		CooldownOver: over,
-	})
-	if err != nil {
-		ulog.Errorf("Add ip %s to cooldown error: %v", ip.VPCIP, err)
-		s.backupReleaseSecondaryIP(ip.VPCIP)
-	} else {
+	}
+	if s.putIpToCooldown(cooldown) {
 		ulog.Infof("Put ip %s to cooldown set, it will be recycled on %d", ip.VPCIP, over)
 	}
 }
@@ -446,14 +439,9 @@ func (s *ipamServer) recycleCooldownIP() {
 				return
 			}
 
-			err = s.poolDB.Put(kv.Key, kv.Value.Network)
-			if err != nil {
-				ulog.Errorf("Put cooldown ip %v to pool error: %v", kv.Key, err)
-				s.backupReleaseSecondaryIP(kv.Value.Network.VPCIP)
-				return
+			if s.putIpToPool(kv.Value.Network) {
+				ulog.Infof("Recycle cooldown ip %s to pool", kv.Value.Network.VPCIP)
 			}
-			ulog.Infof("Recycle cooldown ip %s to pool", kv.Value.Network.VPCIP)
-
 		}
 	}
 }
@@ -553,11 +541,7 @@ func (s *ipamServer) lendIP(newMac string) (*rpc.PodNetwork, error) {
 	if err != nil {
 		// If the loan fails, we need to put the IP back into the pool, otherwise
 		// it will cause IP leakage.
-		putErr := s.poolDB.Put(kv.Key, val)
-		if putErr != nil {
-			ulog.Errorf("Put ip %v to pool after lend failure error: %v", kv.Key, err)
-			s.backupReleaseSecondaryIP(kv.Value.VPCIP)
-		}
+		s.putIpToPool(val)
 		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
 	}
 	return val, nil
@@ -594,6 +578,26 @@ func (s *ipamServer) usedIP() (map[string]struct{}, error) {
 	}
 
 	return used, nil
+}
+
+func (s *ipamServer) putIpToPool(ip *rpc.PodNetwork) bool {
+	err := s.poolDB.Put(getReservedIPKey(ip), ip)
+	if err != nil {
+		ulog.Errorf("Put ip %q to pool error: %v, try to release it", ip.VPCIP, err)
+		s.backupReleaseSecondaryIP(ip.VPCIP)
+		return false
+	}
+	return true
+}
+
+func (s *ipamServer) putIpToCooldown(item *CooldownItem) bool {
+	err := s.cooldownDB.Put(getReservedIPKey(item.Network), item)
+	if err != nil {
+		ulog.Errorf("Put ip %q to cooldown error: %v, try to release it", item.Network.VPCIP, err)
+		s.backupReleaseSecondaryIP(item.Network.VPCIP)
+		return false
+	}
+	return true
 }
 
 func (s *ipamServer) backupReleaseSecondaryIP(ip string) {
