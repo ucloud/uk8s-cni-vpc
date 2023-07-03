@@ -269,12 +269,10 @@ func (s *ipamServer) PushPool(ctx context.Context, req *rpc.PushPoolRequest) (*r
 	}
 
 	network := convertIpToPodNetwork(info)
-	err = s.poolDB.Put(getReservedIPKey(network), network)
-	if err != nil {
-		s.backupReleaseSecondaryIP(info.Ip)
+	if !s.putIpToPool(network) {
 		return &rpc.PushPoolResponse{
 			Code: rpc.CNIErrorCode_CNIWriteDBError,
-		}, status.Error(codes.Internal, fmt.Sprintf("failed to write pool db: %v", err))
+		}, status.Error(codes.Internal, fmt.Sprintf("failed to save ip to db"))
 	}
 
 	return &rpc.PushPoolResponse{
