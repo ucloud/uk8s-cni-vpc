@@ -35,6 +35,7 @@ all: cni
 .PHONY: cni
 cni:
 	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
+	go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
 
 .PHONY: ipamd
 ipamd:
@@ -49,10 +50,6 @@ vip-controller:
 	$(DOCKER_CMD) build -t $(VIP_CONTROLLER_IMAGE) -f dockerfiles/vip-controller/Dockerfile .
 	$(DOCKER_CMD) push $(VIP_CONTROLLER_IMAGE)
 	@echo "Build done: $(VIP_CONTROLLER_IMAGE)"
-
-.PHONY: cnivpctl
-cnivpctl:
-	go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
 
 .PHONY: fmt
 fmt:
