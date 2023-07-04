@@ -27,8 +27,7 @@ DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
 VIP_CONTROLLER_IMAGE:=$(DOCKER_BUCKET)/vip-controller:$(DOCKER_LABEL)
 
-DOCKER_CMD:=$(shell if docker ps 2> /dev/null; then echo "docker"; else echo "sudo docker"; fi)
-CWD:=$(shell pwd)
+DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 
 all: cni
 
