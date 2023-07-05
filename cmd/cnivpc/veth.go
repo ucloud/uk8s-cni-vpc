@@ -78,7 +78,19 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 		Dst:       dstcidr,
 		Scope:     netlink.SCOPE_LINK,
 	}
-	return nl.RouteAdd(&r)
+	err = nl.RouteAdd(&r)
+	switch {
+	case os.IsExist(err):
+		// The route might be added by calico.
+		ulog.Infof("The route %q already exists, skip adding it", dstcidr.IP)
+		return nil
+
+	case err != nil:
+		return fmt.Errorf("Add route %q error: %v", dstcidr.IP, err)
+
+	default:
+		return nil
+	}
 }
 
 func enableForwarding(ipv4 bool, ipv6 bool) error {
