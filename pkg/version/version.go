@@ -13,9 +13,22 @@
 
 package version
 
+import (
+	"fmt"
+	"runtime"
+)
+
 // Build and version information
 var (
 	BuildTime       = ""
 	ProgramCommitID = ""
 	CNIVersion      = ""
 )
+
+func Show() {
+	fmt.Println("CNI Version: \t" + CNIVersion)
+	fmt.Println("Go Version: \t" + runtime.Version())
+	fmt.Printf("Go OS/Arch: \t%s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Println("Build Time: \t" + BuildTime)
+	fmt.Println("Git Commit ID: \t" + ProgramCommitID)
+}

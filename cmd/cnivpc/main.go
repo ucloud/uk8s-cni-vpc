@@ -38,14 +38,6 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func showVersion() {
-	fmt.Println("CNI Version: \t" + vs.CNIVersion)
-	fmt.Println("Go Version: \t" + runtime.Version())
-	fmt.Printf("Go OS/Arch: \t%s/%s\n", runtime.GOOS, runtime.GOARCH)
-	fmt.Println("Build Time: \t" + vs.BuildTime)
-	fmt.Println("Git Commit ID: \t" + vs.ProgramCommitID)
-}
-
 func init() {
 	// this ensures that main runs only on main thread (thread group leader).
 	// since namespace ops (unshare, setns) are done for a single thread, we
@@ -314,7 +306,7 @@ func tickSuicide(done chan bool) {
 func main() {
 	// Print version
 	if len(os.Args) == 2 && os.Args[1] == "version" {
-		showVersion()
+		vs.Show()
 		os.Exit(0)
 	}
 
