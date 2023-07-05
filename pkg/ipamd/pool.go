@@ -432,7 +432,7 @@ func (s *ipamServer) recycleCooldownIP() {
 	now := time.Now().Unix()
 	for _, kv := range kvs {
 		cd := kv.Value
-		if cd.CooldownOver >= now {
+		if now >= cd.CooldownOver {
 			err = s.cooldownDB.Delete(kv.Key)
 			if err != nil {
 				ulog.Errorf("Delete cooldown ip %v from database error: %v", kv.Key, err)

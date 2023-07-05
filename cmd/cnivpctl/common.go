@@ -401,6 +401,7 @@ func ListUnuse(nodes []*Node) ([]*UnuseRecord, error) {
 	var records []*UnuseRecord
 	wp := NewWorkerpool(20)
 	for _, node := range nodes {
+		node := node
 		wp.Run(func() error {
 			client, err := node.Dial()
 			if err != nil {
