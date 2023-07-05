@@ -18,6 +18,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/version"
 )
 
 var cmd = &cobra.Command{
@@ -27,12 +28,24 @@ var cmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
 
+	Version: version.CNIVersion,
+
 	CompletionOptions: cobra.CompletionOptions{
 		HiddenDefaultCmd: true,
 	},
 }
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show cnivpctl version",
+
+	Run: func(_ *cobra.Command, _ []string) {
+		version.Show()
+	},
+}
+
 func main() {
+	cmd.AddCommand(versionCmd)
 	cmd.AddCommand(getCmd, releaseCmd, popCmd, pushCmd)
 
 	err := cmd.Execute()
