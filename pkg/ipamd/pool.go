@@ -227,6 +227,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 	ulog.Infof("Start ip pool watermark manager loop")
 	tk := time.Tick(10 * time.Second)
 	cooldownTk := time.Tick(time.Second * time.Duration(CooldownPeriodSeconds))
+	recycleStatusTk := time.Tick(10 * time.Minute)
 	healthSize := 0
 	for {
 		select {
@@ -277,6 +278,12 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 		case <-cooldownTk:
 			// Recycle the cooldown IP to pool
 			s.recycleCooldownIP()
+
+		case <-recycleStatusTk:
+			err := s.recycleStatus()
+			if err != nil {
+				ulog.Errorf("Recycle ipamd status error: %v", err)
+			}
 
 		case <-chanStopLoop:
 			ulog.Infof("Now stop vpc ip pool manager loop")
@@ -354,6 +361,43 @@ func (s *ipamServer) updateStatus() error {
 	}
 
 	ulog.Infof("Update ipamd resource %q, status: %+v", s.nodeName, status)
+	return nil
+}
+
+func (s *ipamServer) recycleStatus() error {
+	ctx := context.Background()
+	ipamdList, err := s.crdClient.IpamdV1beta1().Ipamds("kube-system").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("list ipamd items error: %v", err)
+	}
+
+	nodeList, err := s.kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("list node items error: %v", err)
+	}
+
+	nodeMap := make(map[string]struct{}, len(nodeList.Items))
+	for _, node := range nodeList.Items {
+		nodeMap[node.Name] = struct{}{}
+	}
+
+	for _, ipamd := range ipamdList.Items {
+		nodeName := ipamd.Spec.Node
+		if _, ok := nodeMap[nodeName]; ok {
+			continue
+		}
+
+		err = s.crdClient.IpamdV1beta1().Ipamds("kube-system").Delete(ctx, ipamd.Name, metav1.DeleteOptions{})
+		if err != nil {
+			if kerrors.IsNotFound(err) {
+				continue
+			}
+			ulog.Errorf("Delete unused ipamd %q error: %v", ipamd.Name, err)
+			continue
+		}
+		ulog.Infof("Delete unused ipamd %s done", ipamd.Name)
+	}
+
 	return nil
 }
 
