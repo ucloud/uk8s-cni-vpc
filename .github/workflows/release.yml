@@ -29,20 +29,21 @@ jobs:
       with:
         go-version: 1.20.5
 
+    - name: Build cnivpc
+      run: DEPLOY=true make cnivpc
+
     - name: Build ipamd
       run: DEPLOY=true make ipamd
 
     - name: Build vip-controller
       run: DEPLOY=true make vip-controller
 
-    - name: Build cni
-      run: make cni
-
     - name: Package cni
       run: >
         tar -cv
         LICENSE README.md
         -C bin/ cnivpc cnivpctl
+        -C config/ 10-cnivpc.conf
         | gzip --best
         > 'uk8s-cni-vpc_${{ steps.get_version.outputs.VERSION }}.tar.gz'
 
@@ -50,5 +51,11 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         draft: true
+        body: |
+          ## Docker Images
+
+          - uhub.service.ucloud.cn/uk8s/cni-vpc-node:${{ steps.get_version.outputs.VERSION }}
+          - uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:${{ steps.get_version.outputs.VERSION }}
+          - uhub.service.ucloud.cn/uk8s/vip-controller:${{ steps.get_version.outputs.VERSION }}
         files: |
           *.tar.gz

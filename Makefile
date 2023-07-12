@@ -24,17 +24,24 @@ DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
 DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),dev-$(COMMIT_ID_SHORT))
 DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 
+CNIVPC_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-node:$(DOCKER_LABEL)
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
 VIP_CONTROLLER_IMAGE:=$(DOCKER_BUCKET)/vip-controller:$(DOCKER_LABEL)
 
 DOCKER_CMD:=$(if $(DOCKER_CMD),$(DOCKER_CMD),docker)
 
-all: cni
+all: cnivpc
 
-.PHONY: cni
-cni:
+.PHONY: cnivpc-bin
+cnivpc-bin:
 	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
 	go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
+
+.PHONY: cnivpc
+cnivpc: cnivpc-bin
+	$(DOCKER_CMD) build -t $(CNIVPC_IMAGE) -f dockerfiles/cnivpc/Dockerfile .
+	$(DOCKER_CMD) push $(CNIVPC_IMAGE)
+	@echo "Build done: $(CNIVPC_IMAGE)"
 
 .PHONY: ipamd
 ipamd:

@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cni-vpc-node
+  namespace: kube-system
+  labels:
+    app: "cni-vpc-node"
+spec:
+  selector:
+    matchLabels:
+      app: "cni-vpc-node"
+  template:
+    metadata:
+      labels:
+         app: "cni-vpc-node"
+    spec:
+      tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: dedicated
+        operator: Exists
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      hostPID: true
+      containers:
+        - name: cni-vpc-node
+          image: uhub.service.ucloud.cn/uk8s/cni-vpc-node:1.0.1
+          securityContext:
+            privileged: true
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: host-cni
+              mountPath: /opt/cni/
+            - name: host-bin
+              mountPath: /host-bin
+            - name: host-log
+              mountPath: /var/log
+              readOnly: true
+      volumes:
+        - name: host-cni
+          hostPath:
+            path: /opt/cni
+        - name: host-bin
+          hostPath:
+            path: /usr/local/bin
+        - name: host-log
+          hostPath:
+            path: /var/log
