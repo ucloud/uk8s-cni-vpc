@@ -2,7 +2,7 @@
 
 if [[ -d /opt/cni ]]; then
 	cp -f /usr/local/bin/cnivpc /opt/cni/bin/cnivpc
-	cp -f /10-cnivpc.conf /opt/cni/net.d/10-cnivpc.conf
+	# cp -f /10-cnivpc.conf /opt/cni/net.d/10-cnivpc.conf
 fi
 
 if [[ -d /host-bin ]]; then
