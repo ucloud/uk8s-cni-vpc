@@ -3,17 +3,22 @@ name: Build Docker Image
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: 'Build target'
-        type: choice
-        required: true
-        default: 'all'
-        options:
-          - all
-          - cnivpc
-          - ipamd
-          - vip-controller
-      tag:
+      build-cnivpc:
+        description: 'Build cnivpc'
+        type: boolean
+        default: true
+
+      build-ipamd:
+        description: 'Build ipamd'
+        type: boolean
+        default: true
+
+      build-vip-controller:
+        description: 'Build vip-controller'
+        type: boolean
+        default: true
+
+      image-tag:
         description: 'Image tag'
         required: true
         type: string
@@ -39,13 +44,13 @@ jobs:
         go-version: 1.20.5
 
     - name: Build cnivpc
-      if: inputs.target == 'all' or inputs.target == 'cnivpc'
-      run: IMAGE_TAG="${{ inputs.tag }}" make cnivpc
+      if: ${{ inputs.build-cnivpc }}
+      run: IMAGE_TAG="${{ inputs.image-tag }}" make cnivpc
 
     - name: Build ipamd
-      if: inputs.target == 'all' or inputs.target == 'ipamd'
-      run: IMAGE_TAG="${{ inputs.tag }}" make ipamd
+      if: ${{ inputs.build-ipamd }}
+      run: IMAGE_TAG="${{ inputs.image-tag }}" make ipamd
 
     - name: Build vip-controller
-      if: inputs.target == 'all' or inputs.target == 'vip-controller'
-      run: IMAGE_TAG="${{ inputs.tag }}" make vip-controller
+      if: ${{ inputs.build-vip-controller }}
+      run: IMAGE_TAG="${{ inputs.image-tag }}" make vip-controller
