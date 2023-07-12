@@ -1,8 +1,11 @@
+name: Build Docker Image
+
 on:
   workflow_dispatch:
     inputs:
       target:
         description: 'Build target'
+        type: choice
         required: true
         default: 'all'
         options:
