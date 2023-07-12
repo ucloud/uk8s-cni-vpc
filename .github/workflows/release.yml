@@ -45,7 +45,7 @@ jobs:
         -C bin/ cnivpc cnivpctl
         -C config/ 10-cnivpc.conf
         | gzip --best
-        > 'uk8s-cni-vpc_${{ steps.get_version.outputs.VERSION }}.tar.gz'
+        > 'uk8s-cni-vpc_v${{ steps.get_version.outputs.VERSION }}.tar.gz'
 
     - name: Create release
       uses: softprops/action-gh-release@v1
