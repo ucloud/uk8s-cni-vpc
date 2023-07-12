@@ -1,0 +1,48 @@
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Build target'
+        required: true
+        default: 'all'
+        options:
+          - all
+          - cnivpc
+          - ipamd
+          - vip-controller
+      tag:
+        description: 'Image tag'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Login to UHub
+      uses: docker/login-action@v2
+      with:
+        registry: uhub.service.ucloud.cn
+        username: ${{ secrets.UHUB_USER }}
+        password: ${{ secrets.UHUB_PASSWORD }}
+
+    - name: Set up go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.20.5
+
+    - name: Build cnivpc
+      if: inputs.target == 'all' or inputs.target == 'cnivpc'
+      run: IMAGE_TAG="${{ inputs.tag }}" make cnivpc
+
+    - name: Build ipamd
+      if: inputs.target == 'all' or inputs.target == 'ipamd'
+      run: IMAGE_TAG="${{ inputs.tag }}" make ipamd
+
+    - name: Build vip-controller
+      if: inputs.target == 'all' or inputs.target == 'vip-controller'
+      run: IMAGE_TAG="${{ inputs.tag }}" make vip-controller
