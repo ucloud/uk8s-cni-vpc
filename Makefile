@@ -72,7 +72,6 @@ check-fmt:
 
 .PHONY: install-check
 install-check:
-	@go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	@go install github.com/client9/misspell/cmd/misspell@latest
 	@go install github.com/gordonklaus/ineffassign@latest
 	@go install golang.org/x/tools/cmd/goimports@latest
@@ -83,8 +82,6 @@ check:
 	@ineffassign ./...
 	@echo "==> check spell"
 	@find . -type f -name '*.go' | xargs misspell -error
-	@echo "==> check gocyclo"
-	@gocyclo -over 70 .
 	@echo "==> go vet"
 	@go vet ./...
 

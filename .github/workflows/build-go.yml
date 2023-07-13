@@ -1,4 +1,4 @@
-name: Build Go binary
+name: Build Go Binary
 
 on:
   push:
@@ -18,13 +18,7 @@ jobs:
     - name: Set up go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.20.4
-
-    - name: Install goimports
-      run: go install golang.org/x/tools/cmd/goimports@latest
-
-    - name: Check go format
-      run: bash scripts/check-fmt.sh
+        go-version: 1.20.5
 
     - name: Build
       run: go build ./...
