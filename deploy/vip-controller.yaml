@@ -64,7 +64,7 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: vip-controller
-          image: uhub.service.ucloud.cn/uk8s/vip-controller:0.1.0-rc1
+          image: uhub.service.ucloud.cn/uk8s/vip-controller:1.2.0
           args:
             - "--static-ip-gc-interval=1h"
           resources:
