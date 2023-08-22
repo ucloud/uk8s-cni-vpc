@@ -41,19 +41,22 @@ func GetMasterInterface() string {
 		return UHostMasterInterface
 	}
 
-	var targetInterface string
-	if strings.HasPrefix(meta.InstanceId, "upm") {
-		targetInterface = UPHostMasterInterface
+	var targetMac string
+	// 裸金属根据mac地址匹配网卡
+	if strings.HasPrefix(meta.InstanceId, "upm") && len(meta.UPHost.NetworkInterfaces) > 0 {
+		mac := meta.UPHost.NetworkInterfaces[0].Mac
+		targetMac = strings.ToLower(mac)
 	} else {
-		targetInterface = UHostMasterInterface
+		// 云主机直接返回eth0
+		return UHostMasterInterface
 	}
 
 	for _, iface := range list {
-		if iface.Name == targetInterface {
-			return targetInterface
+		if iface.HardwareAddr.String() == targetMac {
+			return iface.Name
 		}
 	}
-	return targetInterface
+	return UPHostMasterInterface
 }
 
 // Get node master network interface ip and mac address
