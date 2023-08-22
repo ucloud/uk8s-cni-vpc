@@ -84,7 +84,7 @@ func GetObjectIDForSecondaryIP() (string, error) {
 	}
 
 	req := cli.NewDescribeUHostInstanceRequest()
-	req.UHostIds = []string{}
+	req.UHostIds = []string{instanceId}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
 		ulog.Errorf("DescribeUHostInstance for %v error: %v", instanceId, err)
