@@ -20,6 +20,7 @@ import (
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
@@ -65,6 +66,19 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 			}
 			return ip, true, nil
 		}
+	}
+
+	kubeClient, err := kubeclient.GetNodeClient()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
+	}
+	enableStaticIP, _, err := ipamd.IsPodEnableStaticIP(kubeClient, podName, podNS)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to check pod static ip enable: %v", err)
+	}
+	if enableStaticIP {
+		// If pod enable static ip, we donot allow it to allocate ip without ipamd
+		return nil, false, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
 	}
 
 	uapi, err := uapi.NewClient()

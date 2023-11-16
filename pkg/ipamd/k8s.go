@@ -27,6 +27,7 @@ import (
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/util/retry"
 )
 
@@ -187,10 +188,14 @@ func (s *ipamServer) setAnnotationForCalicoPolicy(pod *v1.Pod, network *rpc.PodN
 }
 
 func (s *ipamServer) podEnableStaticIP(podName, podNS string) (bool, *v1.Pod, error) {
+	return IsPodEnableStaticIP(s.kubeClient, podName, podNS)
+}
+
+func IsPodEnableStaticIP(client *kubernetes.Clientset, podName, podNS string) (bool, *v1.Pod, error) {
 	statefulset := false
-	pod, err := s.getPod(podName, podNS)
+	pod, err := client.CoreV1().Pods(podNS).Get(context.Background(), podName, metav1.GetOptions{})
 	if err != nil {
-		ulog.Errorf("Get pod error: %v", err)
+		ulog.Errorf("Get %s/%s pod error: %v", podNS, podName, err)
 		return false, nil, err
 	}
 
