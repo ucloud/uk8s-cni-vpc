@@ -35,8 +35,8 @@ all: cnivpc
 
 .PHONY: cnivpc-bin
 cnivpc-bin:
-	go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
-	go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
 
 .PHONY: cnivpc
 cnivpc: cnivpc-bin
@@ -46,14 +46,14 @@ cnivpc: cnivpc-bin
 
 .PHONY: ipamd
 ipamd:
-	go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpc-ipamd ./cmd/cnivpc-ipamd
 	$(DOCKER_CMD) build -t $(IPAMD_IMAGE) -f dockerfiles/ipamd/Dockerfile .
 	$(DOCKER_CMD) push $(IPAMD_IMAGE)
 	@echo "Build done: $(IPAMD_IMAGE)"
 
 .PHONY: vip-controller
 vip-controller:
-	go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/vip-controller ./cmd/vip-controller
 	$(DOCKER_CMD) build -t $(VIP_CONTROLLER_IMAGE) -f dockerfiles/vip-controller/Dockerfile .
 	$(DOCKER_CMD) push $(VIP_CONTROLLER_IMAGE)
 	@echo "Build done: $(VIP_CONTROLLER_IMAGE)"
