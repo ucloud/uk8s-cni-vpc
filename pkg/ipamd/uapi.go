@@ -157,7 +157,7 @@ func (s *ipamServer) getObjectIDforSecondaryIp() (string, error) {
 		return "", err
 	}
 	req := cli.NewDescribeUHostInstanceRequest()
-	req.UHostIds = []string{}
+	req.UHostIds = []string{instanceId}
 	resp, err := cli.DescribeUHostInstance(req)
 	if err != nil || len(resp.UHostSet) == 0 {
 		klog.Errorf("DescribeUHostInstance for %v failed, %v", instanceId, err)
