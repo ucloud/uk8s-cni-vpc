@@ -36,7 +36,6 @@ all: cnivpc
 .PHONY: cnivpc-bin
 cnivpc-bin:
 	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
-	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
 
 .PHONY: cnivpc
 cnivpc: cnivpc-bin
