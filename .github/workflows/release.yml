@@ -1,35 +1,64 @@
-name: Release
+name: Create a Release
 
 on:
   push:
     tags:
       - '*'
 
+permissions:
+  contents: write
+
 jobs:
-  release:
-    if: contains(github.ref, 'refs/tags/')
+  build:
     runs-on: ubuntu-latest
+
     steps:
     - name: Checkout
       uses: actions/checkout@v3
 
+    - name: Login to UHub
+      uses: docker/login-action@v2
+      with:
+        registry: uhub.service.ucloud.cn
+        username: ${{ secrets.UHUB_USER }}
+        password: ${{ secrets.UHUB_PASSWORD }}
+
+    - name: Get the version
+      id: get_version
+      run: echo ::set-output name=VERSION::$(echo $GITHUB_REF | cut -d / -f 3 | sed -e "s/^v//")
+
     - name: Set up go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.19.5
+        go-version: 1.20.5
 
-    - name: Build CNI
-      run: make build
+    - name: Build cnivpc
+      run: DEPLOY=true make cnivpc
 
-    - name: Build ipamctl
-      run: make build-ipamctl
+    - name: Build ipamd
+      run: DEPLOY=true make ipamd
 
-    - name: Pack
-      run: zip -r cnivpc.zip ./bin LLICENSE
+    - name: Build vip-controller
+      run: DEPLOY=true make vip-controller
+
+    - name: Package cni
+      run: >
+        tar -cv
+        LICENSE README.md
+        -C bin/ cnivpc cnivpctl
+        -C config/ 10-cnivpc.conf
+        | gzip --best
+        > 'uk8s-cni-vpc_v${{ steps.get_version.outputs.VERSION }}.tar.gz'
 
     - name: Create release
       uses: softprops/action-gh-release@v1
       with:
-        token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
+        draft: true
+        body: |
+          ## Docker Images
+
+          - uhub.service.ucloud.cn/uk8s/cni-vpc-node:${{ steps.get_version.outputs.VERSION }}
+          - uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:${{ steps.get_version.outputs.VERSION }}
+          - uhub.service.ucloud.cn/uk8s/vip-controller:${{ steps.get_version.outputs.VERSION }}
         files: |
-          cnivpc.zip
+          *.tar.gz
