@@ -36,7 +36,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/component-base/metrics/prometheus/ratelimiter"
 )
 
 const stsEnableStaticIpNote = "network.beta.kubernetes.io/ucloud-statefulset-static-ip"
@@ -52,9 +51,6 @@ type StsController struct {
 }
 
 func NewStsController(stsInformer appsinformer.StatefulSetInformer, client clientset.Interface, vpcIpClaimclientset crdclientset.Interface) *StsController {
-	if client != nil && client.CoreV1().RESTClient().GetRateLimiter() != nil {
-		ratelimiter.RegisterMetricAndTrackRateLimiterUsage("", client.CoreV1().RESTClient().GetRateLimiter())
-	}
 	sts := &StsController{
 		client:           client,
 		vipClient:        vpcIpClaimclientset,
