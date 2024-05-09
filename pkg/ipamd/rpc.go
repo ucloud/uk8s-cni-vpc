@@ -97,7 +97,7 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 				req.GetPodName(), req.GetPodNamespace(), req.GetSandboxID(), resp.Err)
 			return &rpc.AddPodNetworkResponse{
 				Code: rpc.CNIErrorCode_CNIAllocateSecondaryIPFailure,
-			}, status.Error(codes.Internal, resp.Err.Error())
+			}, status.Error(codes.Internal, err.Error())
 		}
 
 		pNet := resp.PodNetwork
