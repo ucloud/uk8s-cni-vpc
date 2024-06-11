@@ -679,7 +679,7 @@ func (s *ipamServer) checkIPHealth() error {
 	if !exists {
 		// This ip has already been removed in VPC, it should not be assigned to Pod.
 		// So it should be removed from pool immediately.
-		ulog.Warnf("The ip %s is not exist in vpc, remove it in pool", toCheck.Value.VPCIP)
+		ulog.Warnf("The ip %s does not exist in vpc, remove it in pool", toCheck.Value.VPCIP)
 		err = s.poolDB.Delete(toCheck.Key)
 		if err != nil {
 			return fmt.Errorf("failed to remove not exists ip %s from pool: %v", toCheck.Value.VPCIP, err)
@@ -688,8 +688,9 @@ func (s *ipamServer) checkIPHealth() error {
 		return nil
 	}
 
-	ulog.Infof("The ip %s is exists in VPC", toCheck.Value.VPCIP)
+	ulog.Infof("The ip %s exists in VPC", toCheck.Value.VPCIP)
 
+	// Now the ip is considered to be healthy, update the check time.
 	toCheck.Value.CheckHealthTime = time.Now().Unix()
 	err = s.poolDB.Put(toCheck.Key, toCheck.Value)
 	if err != nil {
