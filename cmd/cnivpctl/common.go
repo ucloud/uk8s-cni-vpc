@@ -217,11 +217,13 @@ type PoolRecord struct {
 	Recycled     bool  `json:"recycled" yaml:"recycled"`
 	RecycledTime int64 `json:"recycled_time" yaml:"recycled_time"`
 
+	CheckHealthTime int64 `json:"check_health_time" yaml:"check_health_time"`
+
 	Cooldown bool `json:"cooldown" yaml:"cooldown"`
 }
 
 func (r *PoolRecord) Titles() []string {
-	return []string{"IP", "RECYCLED", "COOLDOWN", "AGE"}
+	return []string{"IP", "RECYCLED", "COOLDOWN", "HEALTH_AGE", "AGE"}
 }
 
 func (r *PoolRecord) Row() []string {
@@ -233,6 +235,7 @@ func (r *PoolRecord) Row() []string {
 		r.IP,
 		recycled,
 		fmt.Sprint(r.Cooldown),
+		getAge(r.CheckHealthTime),
 		getAge(r.CreateTime),
 	}
 }
@@ -261,22 +264,24 @@ func ListPool(nodes []*Node) ([]*PoolRecord, error) {
 			wp.SingleFlight(func() {
 				for _, ip := range resp.Pool {
 					records = append(records, &PoolRecord{
-						IP:           ip.VPCIP,
-						Node:         node.Name,
-						CreateTime:   ip.CreateTime,
-						Recycled:     ip.Recycled,
-						RecycledTime: ip.RecycleTime,
-						Cooldown:     false,
+						IP:              ip.VPCIP,
+						Node:            node.Name,
+						CreateTime:      ip.CreateTime,
+						Recycled:        ip.Recycled,
+						RecycledTime:    ip.RecycleTime,
+						CheckHealthTime: ip.CheckHealthTime,
+						Cooldown:        false,
 					})
 				}
 				for _, ip := range resp.Cooldown {
 					records = append(records, &PoolRecord{
-						IP:           ip.VPCIP,
-						Node:         node.Name,
-						CreateTime:   ip.CreateTime,
-						Recycled:     ip.Recycled,
-						RecycledTime: ip.RecycleTime,
-						Cooldown:     true,
+						IP:              ip.VPCIP,
+						Node:            node.Name,
+						CreateTime:      ip.CreateTime,
+						Recycled:        ip.Recycled,
+						RecycledTime:    ip.RecycleTime,
+						CheckHealthTime: ip.CheckHealthTime,
+						Cooldown:        true,
 					})
 				}
 			})

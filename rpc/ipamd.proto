@@ -102,6 +102,7 @@ message PodNetwork {
 	int64 CreateTime = 15;
 	int64 RecycleTime = 16;
 	bool Recycled = 17;
+	int64 CheckHealthTime = 18;
 }
 
 message BorrowIPRequest {

@@ -229,6 +229,7 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 	cooldownTk := time.Tick(time.Second * time.Duration(CooldownPeriodSeconds))
 	recycleStatusTk := time.Tick(10 * time.Minute)
 	healthSize := 0
+	checkIpHealthTk := time.Tick(10 * time.Minute)
 	for {
 		select {
 		case <-tk:
@@ -278,6 +279,12 @@ func (s *ipamServer) ipPoolWatermarkManager() {
 		case <-cooldownTk:
 			// Recycle the cooldown IP to pool
 			s.recycleCooldownIP()
+
+		case <-checkIpHealthTk:
+			err := s.checkIPHealth()
+			if err != nil {
+				ulog.Errorf("Check ip health error: %v", err)
+			}
 
 		case <-recycleStatusTk:
 			err := s.recycleStatus()
@@ -483,6 +490,21 @@ func (s *ipamServer) recycleCooldownIP() {
 				return
 			}
 
+			network := kv.Value.Network
+			exists, err := s.checkSecondaryIpExist(network.VPCIP, s.hostMacAddr)
+			if err != nil {
+				ulog.Errorf("Check cooldown ip %v from vpc error: %v", network.VPCIP, err)
+				err = s.cooldownDB.Put(kv.Key, kv.Value)
+				if err != nil {
+					ulog.Errorf("Put ip %v back to cooldown pool after checking health error: %v, it will leak", network.VPCIP, err)
+				}
+				return
+			}
+			if !exists {
+				ulog.Warnf("The cooldwon ip %s is not exist in vpc, ignore it", network.VPCIP)
+				continue
+			}
+
 			if s.putIpToPool(kv.Value.Network) {
 				ulog.Infof("Recycle cooldown ip %s to pool", kv.Value.Network.VPCIP)
 			}
@@ -622,6 +644,58 @@ func (s *ipamServer) usedIP() (map[string]struct{}, error) {
 	}
 
 	return used, nil
+}
+
+func (s *ipamServer) checkIPHealth() error {
+	kvs, err := s.poolDB.List()
+	if err != nil {
+		return err
+	}
+
+	// Let's pick an IP that hasn't been checked for the longest time.
+	var toCheck *database.KeyValue[rpc.PodNetwork]
+	for _, kv := range kvs {
+		if toCheck == nil {
+			toCheck = kv
+			continue
+		}
+
+		if kv.Value.CheckHealthTime < toCheck.Value.CheckHealthTime {
+			toCheck = kv
+		}
+	}
+
+	if toCheck == nil {
+		ulog.Infof("No ip in pool, skip checking health")
+		return nil
+	}
+
+	ulog.Infof("Check health for ip %s", toCheck.Value.VPCIP)
+	exists, err := s.checkSecondaryIpExist(toCheck.Value.VPCIP, s.hostMacAddr)
+	if err != nil {
+		return fmt.Errorf("failed to check ip health for %s, vpc api error: %v", toCheck.Value.VPCIP, err)
+	}
+
+	if !exists {
+		// This ip has already been removed in VPC, it should not be assigned to Pod.
+		// So it should be removed from pool immediately.
+		ulog.Warnf("The ip %s is not exist in vpc, remove it in pool", toCheck.Value.VPCIP)
+		err = s.poolDB.Delete(toCheck.Key)
+		if err != nil {
+			return fmt.Errorf("failed to remove not exists ip %s from pool: %v", toCheck.Value.VPCIP, err)
+		}
+
+		return nil
+	}
+
+	ulog.Infof("The ip %s is exists in VPC", toCheck.Value.VPCIP)
+
+	toCheck.Value.CheckHealthTime = time.Now().Unix()
+	err = s.poolDB.Put(toCheck.Key, toCheck.Value)
+	if err != nil {
+		return fmt.Errorf("failed to update check health time for ip %s: %v", toCheck.Value.VPCIP, err)
+	}
+	return nil
 }
 
 func (s *ipamServer) putIpToPool(ip *rpc.PodNetwork) bool {
