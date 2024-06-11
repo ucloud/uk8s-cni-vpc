@@ -141,9 +141,9 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 		err = s.checkIPConflict(pn.VPCIP)
 		if err != nil {
 			ulog.Errorf("Detect ip conflict for %s error: %v, we will release it", pn.VPCIP, err)
-			err = s.uapiDeleteSecondaryIp(pn.VPCIP)
-			if err != nil {
-				ulog.Errorf("Release ip %s after conflict error: %v", pn.VPCIP, err)
+			delErr := s.uapiDeleteSecondaryIp(pn.VPCIP)
+			if delErr != nil {
+				ulog.Errorf("Release ip %s after conflict error: %v", pn.VPCIP, delErr)
 				return nil, err
 			}
 			return nil, err
