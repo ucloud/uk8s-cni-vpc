@@ -147,15 +147,13 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 			}
 			return nil, err
 		}
-
-		return pn, nil
 	}
 
-	ulog.Infof("IP %s is recycled, check its status in VPC", pn.VPCIP)
+	ulog.Infof("Check IP %s status in VPC", pn.VPCIP)
 	// In some cases, the IP is deleted in VPC but still remain in the pool. If we give it to
 	// the Pod, the Pod network will be unavailable.
-	// So this check must be done before we returning the recycled IPs. If the IP does not
-	// exist, returns error to make kubelet retries to get another one.
+	// So this check must be done before we returning IP. If the IP does not exist, returns
+	// error to make kubelet retries to get another one.
 	ok, err := s.checkSecondaryIpExist(pn.VPCIP, s.hostMacAddr)
 	if err != nil {
 		return nil, fmt.Errorf("check ip %v status in vpc error: %v", pn.VPCIP, err)
