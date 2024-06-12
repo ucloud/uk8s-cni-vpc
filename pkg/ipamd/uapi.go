@@ -323,8 +323,10 @@ func (s *ipamServer) checkSecondaryIpExist(ip, mac string) (bool, error) {
 		ulog.Errorf("DescribeSecondaryIp %s error: %v, request id %s", ip, err, resp.GetRequestUUID())
 		return false, err
 	}
-	if len(resp.DataSet) > 0 {
-		return true, nil
+	for _, data := range resp.DataSet {
+		if data.Ip == ip {
+			return true, nil
+		}
 	}
 	return false, nil
 }
