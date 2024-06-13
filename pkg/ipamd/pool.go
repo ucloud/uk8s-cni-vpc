@@ -135,6 +135,20 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 	if err != nil {
 		return nil, err
 	}
+
+	ulog.Infof("Check IP %s status in VPC", pn.VPCIP)
+	// In some cases, the IP is deleted in VPC but still remain in the pool. If we give it to
+	// the Pod, the Pod network will be unavailable.
+	// So this check must be done before we returning IP. If the IP does not exist, returns
+	// error to make kubelet retries to get another one.
+	ok, err := s.checkSecondaryIpExist(pn.VPCIP, s.hostMacAddr)
+	if err != nil {
+		return nil, fmt.Errorf("check ip %v status in vpc error: %v", pn.VPCIP, err)
+	}
+	if !ok {
+		return nil, fmt.Errorf("ip %v does not exist on current node, we will try to use another one", pn.VPCIP)
+	}
+
 	if !pn.Recycled && pn.VPCIP != "" {
 		// We need to detect IP conflict before using it.
 		// See: https://www.rfc-editor.org/rfc/rfc5227
@@ -147,20 +161,6 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 			}
 			return nil, err
 		}
-	}
-
-	ulog.Infof("Check IP %s status in VPC", pn.VPCIP)
-	// In some cases, the IP is deleted in VPC but still remain in the pool. If we give it to
-	// the Pod, the Pod network will be unavailable.
-	// So this check must be done before we returning IP. If the IP does not exist, returns
-	// error to make kubelet retries to get another one.
-	ok, err := s.checkSecondaryIpExist(pn.VPCIP, s.hostMacAddr)
-	if err != nil {
-		return nil, fmt.Errorf("check ip %v status in vpc error: %v", pn.VPCIP, err)
-	}
-
-	if !ok {
-		return nil, fmt.Errorf("ip %v does not exist on current node, we will try to use another one", pn.VPCIP)
 	}
 
 	return pn, nil
