@@ -58,6 +58,10 @@ vip-controller:
 	$(DOCKER_CMD) push $(VIP_CONTROLLER_IMAGE)
 	@echo "Build done: $(VIP_CONTROLLER_IMAGE)"
 
+.PHONY: release-ip
+release-ip:
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build -o ./bin/release-ip ./cmd/release-ip
+
 .PHONY: fmt
 fmt:
 	@command -v goimports >/dev/null || { echo "ERROR: goimports not installed"; exit 1; }
