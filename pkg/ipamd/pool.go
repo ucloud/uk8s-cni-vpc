@@ -122,12 +122,12 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 	podName := r.GetPodName()
 	podNS := r.GetPodNamespace()
 	sandboxId := r.GetSandboxID()
-	enable, pod, err := s.podEnableStaticIP(podName, podNS)
+	enableStatic, pod, err := s.podEnableStaticIP(podName, podNS)
 	if err != nil {
 		return nil, err
 	}
 	var pn *rpc.PodNetwork
-	if enable {
+	if enableStatic {
 		pn, err = s.assignStaticPodIP(pod, sandboxId)
 	} else {
 		pn, err = s.assignPodIP()
@@ -143,6 +143,9 @@ func (s *ipamServer) getPodIp(r *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, err
 	// error to make kubelet retries to get another one.
 	ok, err := s.checkSecondaryIpExist(pn.VPCIP, s.hostMacAddr)
 	if err != nil {
+		if !enableStatic {
+			s.putIpToPool(pn)
+		}
 		return nil, fmt.Errorf("check ip %v status in vpc error: %v", pn.VPCIP, err)
 	}
 	if !ok {
