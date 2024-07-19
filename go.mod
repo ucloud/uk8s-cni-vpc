@@ -14,7 +14,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/ucloud/go-lockfile v0.1.0
 	github.com/ucloud/ucloud-sdk-go v0.21.46
-	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852
+	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	google.golang.org/grpc v1.56.3
 	google.golang.org/protobuf v1.33.0
