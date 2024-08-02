@@ -189,7 +189,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	err = addPodNetworkRecord(podName, podNS, sandBoxId, netNS, pNet)
 	if err != nil {
-		log.Warningf("Failed to record pod network info for %s/%s, sandbox: %s", podName, podNS, sandBoxId)
+		log.Errorf("Record pod network info for %s/%s, sandbox: %s, ip: %s, error: %v", podName, podNS, sandBoxId, pNet.VPCIP, err)
+		return fmt.Errorf("failed to add pod network record: %v", err)
 	}
 	// Fill result routes
 	log.Infof("[Result]: %+v", result)
