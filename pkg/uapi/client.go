@@ -151,11 +151,16 @@ func NewClient() (*ApiClient, error) {
 		zoneId:     meta.AvailabilityZone,
 		cfg:        &cfg,
 	}
-	// Get vpcId and subnetId
-	if len(meta.UHost.NetworkInterfaces) > 0 {
-		uApi.vpcId = meta.UHost.NetworkInterfaces[0].VpcId
-		uApi.subnetId = meta.UHost.NetworkInterfaces[0].SubnetId
-	} else {
+
+	for _, iface := range meta.UHost.NetworkInterfaces {
+		if iface.Default {
+			uApi.vpcId = iface.VpcId
+			uApi.subnetId = iface.SubnetId
+			break
+		}
+	}
+
+	if uApi.vpcId == "" || uApi.subnetId == "" {
 		uApi.vpcId = os.Getenv("UCLOUD_VPC_ID")
 		uApi.subnetId = os.Getenv("UCLOUD_SUBNET_ID")
 	}

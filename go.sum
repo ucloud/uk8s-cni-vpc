@@ -162,6 +162,8 @@ github.com/ucloud/go-lockfile v0.1.0 h1:Mzb1/OZc8Gween/p1cA4t6qBTiE9JnZntZpRTdII
 github.com/ucloud/go-lockfile v0.1.0/go.mod h1:OCM7zfa82qicE2nW5pVtSDEMmPvjYvProNQ/f2YHEkw=
 github.com/ucloud/ucloud-sdk-go v0.21.46 h1:LwrTxERZjQJPjVILoIfjy8PTgYkckah5ms2eq4ECgT0=
 github.com/ucloud/ucloud-sdk-go v0.21.46/go.mod h1:dyLmFHmUfgb4RZKYQP9IArlvQ2pxzFthfhwxRzOEPIw=
+github.com/ucloud/ucloud-sdk-go v0.22.30 h1:CZQWo+LLLYMVgf/Mq9JoFVNyIM7jLFpwvnctsUwXV3k=
+github.com/ucloud/ucloud-sdk-go v0.22.30/go.mod h1:dyLmFHmUfgb4RZKYQP9IArlvQ2pxzFthfhwxRzOEPIw=
 github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852/go.mod h1:twkDnbuQxJYemMlGd4JFIcuhgX83tXhKS2B/PRMpOho=
 github.com/vishvananda/netlink v1.2.1-beta.2 h1:Llsql0lnQEbHj0I1OuKyp8otXp0r3q0mPkuhwHfStVs=
 github.com/vishvananda/netlink v1.2.1-beta.2/go.mod h1:twkDnbuQxJYemMlGd4JFIcuhgX83tXhKS2B/PRMpOho=
