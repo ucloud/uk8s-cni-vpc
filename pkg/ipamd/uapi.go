@@ -140,6 +140,11 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 	req.SubnetId = ucloud.String(s.uapi.SubnetID())
 
 	for i := 0; i < number; i++ {
+		err = s.uapiCheckSubnetRemainsIP()
+		if err != nil {
+			return nil, err
+		}
+
 		resp, err := cli.AllocateSecondaryIp(req)
 		if err != nil {
 			if resp != nil && resp.GetRetCode() == UAPIErrorSubnetNotEnough {
@@ -153,6 +158,38 @@ func (s *ipamServer) uapiAllocateSecondaryIP(number int) (ips []*vpc.IpInfo, err
 		ips = append(ips, &(resp.IpInfo))
 	}
 	return
+}
+
+// Describe Subnet, check if it still has remain IP(s) to allocate
+// If there is no remain IP, returns `ErrOutOfIP`
+func (s *ipamServer) uapiCheckSubnetRemainsIP() error {
+	cli, err := s.uapi.VPCClient()
+	if err != nil {
+		return err
+	}
+
+	req := cli.NewDescribeSubnetRequest()
+	req.ShowAvailableIPs = ucloud.Bool(true)
+	req.SubnetId = ucloud.String(s.uapi.SubnetID())
+	req.VPCId = ucloud.String(s.uapi.VPCID())
+
+	resp, err := cli.DescribeSubnet(req)
+	if err != nil {
+		return err
+	}
+
+	if len(resp.DataSet) == 0 {
+		return fmt.Errorf("subnet %s not found", s.uapi.SubnetID())
+	}
+
+	subnet := resp.DataSet[0]
+	ulog.Infof("Subnet remains %d ip to allocate", subnet.AvailableIPs)
+	if subnet.AvailableIPs <= 0 {
+		ulog.Warnf("No enough ip in subnet %s to allocate", s.uapi.SubnetID())
+		return ErrOutOfIP
+	}
+
+	return nil
 }
 
 func (s *ipamServer) uapiEnsureSecondaryIP(ip string) (*vpc.IpInfo, error) {
