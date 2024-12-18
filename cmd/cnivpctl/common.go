@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"strconv"
 	"sync"
 	"time"
@@ -34,17 +33,22 @@ import (
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
 
+var preferredConfigPaths = []string{
+	"$HOME/.kube/config",
+	"/etc/kubernetes/cnivpc.kubeconfig",
+	"/etc/kubernetes/kubelet.kubeconfig",
+}
+
 func kubeConfig() (*rest.Config, error) {
 	configPath := os.Getenv("KUBECONFIG")
 	if configPath == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("Get home dir error: %v", err)
-		}
-		configPath = path.Join(homeDir, ".kube", "config")
-		_, err = os.Stat(configPath)
-		if err != nil {
-			configPath = "/etc/kubernetes/kubelet.kubeconfig"
+		for _, path := range preferredConfigPaths {
+			path = os.ExpandEnv(path)
+			_, err := os.Stat(path)
+			if err == nil {
+				configPath = path
+				break
+			}
 		}
 	}
 

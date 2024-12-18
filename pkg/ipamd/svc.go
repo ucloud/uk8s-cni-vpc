@@ -78,10 +78,15 @@ type ipamServer struct {
 }
 
 func Start() error {
-	kubeClient, err := kubeclient.GetNodeClient()
+	kubeConfig, err := kubeclient.GetConfig()
 	if err != nil {
 		return err
 	}
+	kubeClient, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return err
+	}
+
 	crdClient, err := kubeclient.GetCRD()
 	if err != nil {
 		return err

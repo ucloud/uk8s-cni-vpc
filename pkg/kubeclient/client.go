@@ -14,7 +14,9 @@
 package kubeclient
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"k8s.io/client-go/kubernetes"
@@ -81,12 +83,27 @@ func GetCRD() (*crdclientset.Clientset, error) {
 	return crd, err
 }
 
-const nodeKubeConfigPath = "/etc/kubernetes/kubelet.kubeconfig"
+var nodeKubeConfigPaths = []string{
+	"/etc/kubernetes/cnivpc.kubeconfig",
+	"/etc/kubernetes/kubelet.kubeconfig",
+}
 
 func GetNodeClient() (*kubernetes.Clientset, error) {
-	cfg, err := clientcmd.BuildConfigFromFlags("", nodeKubeConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read kube config: %v", err)
+	for _, path := range nodeKubeConfigPaths {
+		_, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		cfg, err := clientcmd.BuildConfigFromFlags("", path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read kube config: %v", err)
+		}
+		return kubernetes.NewForConfig(cfg)
 	}
-	return kubernetes.NewForConfig(cfg)
+
+	return nil, errors.New("no available kubeconfig in node")
 }
