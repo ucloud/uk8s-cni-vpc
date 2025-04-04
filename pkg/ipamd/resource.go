@@ -27,20 +27,31 @@ import (
 	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
 )
 
-// UNI limit equals to vCPU number
+// convert vCPU to uni limits according to
+// https://docs.ucloud.cn/vpc/guide/uni
 func getNodeUNILimits() int {
 	//	http://100.80.80.80/meta-data/v1/uhost/cpu
 	mdcli := metadata.NewClient()
 	cpu, err := mdcli.GetMetadata("/uhost/cpu")
 	if err != nil {
-		return runtime.NumCPU()
+		return 1
+	}
+	cpuNo, err := strconv.Atoi(cpu)
+	if err != nil {
+		cpuNo = runtime.NumCPU()
+	}
+	if cpuNo > 64 {
+		return 15
+	} else if cpuNo > 32 {
+		return 12
+	} else if cpuNo > 8 {
+		return 8
+	} else if cpuNo > 4 {
+		return 4
+	} else if cpuNo > 2 {
+		return 3
 	} else {
-		cpuNo, err := strconv.Atoi(cpu)
-		if err != nil {
-			return runtime.NumCPU()
-		} else {
-			return cpuNo
-		}
+		return 2
 	}
 }
 
