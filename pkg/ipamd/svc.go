@@ -120,9 +120,7 @@ func Start() error {
 	go ipd.ipPoolWatermarkManager()
 	go ipd.reconcile()
 
-	// UPHost doesn't support uni, no need to run device plugin.
-	// Type O/OS doesn't support uni, no need to run device plugin.
-	if ipd.uniEnabled(os.Getenv("KUBE_NODE_NAME")) {
+	if uapi.IsUNIFeatureUHost() {
 		go func() {
 			err = startDevicePlugin()
 			if err != nil {
