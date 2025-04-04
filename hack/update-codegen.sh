@@ -25,12 +25,13 @@ fi
 
 bash code-generator/generate-groups.sh "deepcopy,client,informer,lister" \
   github.com/ucloud/uk8s-cni-vpc/kubernetes/generated  github.com/ucloud/uk8s-cni-vpc/kubernetes/apis \
-  "ipamd:v1beta1 vipcontroller:v1beta1" \
+  "ipamd:v1beta1 vipcontroller:v1beta1 podnetworking:v1beta1" \
   --output-base generated_tmp \
   --go-header-file hack/boilerplate.go.txt
 
 cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/kubernetes/generated ./kubernetes
 cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/ipamd/v1beta1/zz_generated.deepcopy.go ./kubernetes/apis/ipamd/v1beta1
 cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1/zz_generated.deepcopy.go ./kubernetes/apis/vipcontroller/v1beta1
+cp -r generated_tmp/github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1/zz_generated.deepcopy.go ./kubernetes/apis/podnetworking/v1beta1
 
 rm -rf generated_tmp
