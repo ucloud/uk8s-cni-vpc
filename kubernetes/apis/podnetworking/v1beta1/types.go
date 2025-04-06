@@ -31,7 +31,6 @@ type PodNetworking struct {
 
 // PodNetworkingSpec is the spec for a PodNetworking resource
 type PodNetworkingSpec struct {
-	Default          bool     `json:"default"`
 	SecurityGroupIds []string `json:"securityGroupIds"`
 	SubnetIds        []string `json:"subnetIds"`
 }

@@ -15,8 +15,6 @@ spec:
             spec:
               type: object
               properties:
-                default:
-                  type: boolean
                 securityGroupIds:
                   type: array
                   items:
