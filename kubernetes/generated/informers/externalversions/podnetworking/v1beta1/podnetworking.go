@@ -39,33 +39,32 @@ type PodNetworkingInformer interface {
 type podNetworkingInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewPodNetworkingInformer constructs a new informer for PodNetworking type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewPodNetworkingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredPodNetworkingInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewPodNetworkingInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredPodNetworkingInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredPodNetworkingInformer constructs a new informer for PodNetworking type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredPodNetworkingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredPodNetworkingInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodnetworkingV1beta1().PodNetworkings(namespace).List(context.TODO(), options)
+				return client.PodnetworkingV1beta1().PodNetworkings().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodnetworkingV1beta1().PodNetworkings(namespace).Watch(context.TODO(), options)
+				return client.PodnetworkingV1beta1().PodNetworkings().Watch(context.TODO(), options)
 			},
 		},
 		&podnetworkingv1beta1.PodNetworking{},
@@ -75,7 +74,7 @@ func NewFilteredPodNetworkingInformer(client versioned.Interface, namespace stri
 }
 
 func (f *podNetworkingInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredPodNetworkingInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredPodNetworkingInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *podNetworkingInformer) Informer() cache.SharedIndexInformer {

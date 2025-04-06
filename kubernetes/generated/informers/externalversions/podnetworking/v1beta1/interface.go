@@ -38,5 +38,5 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 
 // PodNetworkings returns a PodNetworkingInformer.
 func (v *version) PodNetworkings() PodNetworkingInformer {
-	return &podNetworkingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &podNetworkingInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

@@ -25,8 +25,8 @@ type FakePodnetworkingV1beta1 struct {
 	*testing.Fake
 }
 
-func (c *FakePodnetworkingV1beta1) PodNetworkings(namespace string) v1beta1.PodNetworkingInterface {
-	return &FakePodNetworkings{c, namespace}
+func (c *FakePodnetworkingV1beta1) PodNetworkings() v1beta1.PodNetworkingInterface {
+	return &FakePodNetworkings{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

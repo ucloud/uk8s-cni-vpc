@@ -31,8 +31,8 @@ type PodnetworkingV1beta1Client struct {
 	restClient rest.Interface
 }
 
-func (c *PodnetworkingV1beta1Client) PodNetworkings(namespace string) PodNetworkingInterface {
-	return newPodNetworkings(c, namespace)
+func (c *PodnetworkingV1beta1Client) PodNetworkings() PodNetworkingInterface {
+	return newPodNetworkings(c)
 }
 
 // NewForConfig creates a new PodnetworkingV1beta1Client for the given config.
