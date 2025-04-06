@@ -18,7 +18,3 @@ package v1beta1
 // PodNetworkingListerExpansion allows custom methods to be added to
 // PodNetworkingLister.
 type PodNetworkingListerExpansion interface{}
-
-// PodNetworkingNamespaceListerExpansion allows custom methods to be added to
-// PodNetworkingNamespaceLister.
-type PodNetworkingNamespaceListerExpansion interface{}

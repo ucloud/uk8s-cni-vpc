@@ -30,7 +30,6 @@ import (
 // FakePodNetworkings implements PodNetworkingInterface
 type FakePodNetworkings struct {
 	Fake *FakePodnetworkingV1beta1
-	ns   string
 }
 
 var podnetworkingsResource = schema.GroupVersionResource{Group: "podnetworking.uk8s.com", Version: "v1beta1", Resource: "podnetworkings"}
@@ -40,8 +39,7 @@ var podnetworkingsKind = schema.GroupVersionKind{Group: "podnetworking.uk8s.com"
 // Get takes name of the podNetworking, and returns the corresponding podNetworking object, and an error if there is any.
 func (c *FakePodNetworkings) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.PodNetworking, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(podnetworkingsResource, c.ns, name), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootGetAction(podnetworkingsResource, name), &v1beta1.PodNetworking{})
 	if obj == nil {
 		return nil, err
 	}
@@ -51,8 +49,7 @@ func (c *FakePodNetworkings) Get(ctx context.Context, name string, options v1.Ge
 // List takes label and field selectors, and returns the list of PodNetworkings that match those selectors.
 func (c *FakePodNetworkings) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.PodNetworkingList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(podnetworkingsResource, podnetworkingsKind, c.ns, opts), &v1beta1.PodNetworkingList{})
-
+		Invokes(testing.NewRootListAction(podnetworkingsResource, podnetworkingsKind, opts), &v1beta1.PodNetworkingList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -73,15 +70,13 @@ func (c *FakePodNetworkings) List(ctx context.Context, opts v1.ListOptions) (res
 // Watch returns a watch.Interface that watches the requested podNetworkings.
 func (c *FakePodNetworkings) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(podnetworkingsResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(podnetworkingsResource, opts))
 }
 
 // Create takes the representation of a podNetworking and creates it.  Returns the server's representation of the podNetworking, and an error, if there is any.
 func (c *FakePodNetworkings) Create(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.CreateOptions) (result *v1beta1.PodNetworking, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(podnetworkingsResource, c.ns, podNetworking), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootCreateAction(podnetworkingsResource, podNetworking), &v1beta1.PodNetworking{})
 	if obj == nil {
 		return nil, err
 	}
@@ -91,8 +86,7 @@ func (c *FakePodNetworkings) Create(ctx context.Context, podNetworking *v1beta1.
 // Update takes the representation of a podNetworking and updates it. Returns the server's representation of the podNetworking, and an error, if there is any.
 func (c *FakePodNetworkings) Update(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.UpdateOptions) (result *v1beta1.PodNetworking, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(podnetworkingsResource, c.ns, podNetworking), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootUpdateAction(podnetworkingsResource, podNetworking), &v1beta1.PodNetworking{})
 	if obj == nil {
 		return nil, err
 	}
@@ -103,8 +97,7 @@ func (c *FakePodNetworkings) Update(ctx context.Context, podNetworking *v1beta1.
 // Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 func (c *FakePodNetworkings) UpdateStatus(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.UpdateOptions) (*v1beta1.PodNetworking, error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateSubresourceAction(podnetworkingsResource, "status", c.ns, podNetworking), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootUpdateSubresourceAction(podnetworkingsResource, "status", podNetworking), &v1beta1.PodNetworking{})
 	if obj == nil {
 		return nil, err
 	}
@@ -114,14 +107,13 @@ func (c *FakePodNetworkings) UpdateStatus(ctx context.Context, podNetworking *v1
 // Delete takes name of the podNetworking and deletes it. Returns an error if one occurs.
 func (c *FakePodNetworkings) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteAction(podnetworkingsResource, c.ns, name), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootDeleteAction(podnetworkingsResource, name), &v1beta1.PodNetworking{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakePodNetworkings) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(podnetworkingsResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(podnetworkingsResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.PodNetworkingList{})
 	return err
@@ -130,8 +122,7 @@ func (c *FakePodNetworkings) DeleteCollection(ctx context.Context, opts v1.Delet
 // Patch applies the patch and returns the patched podNetworking.
 func (c *FakePodNetworkings) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.PodNetworking, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(podnetworkingsResource, c.ns, name, pt, data, subresources...), &v1beta1.PodNetworking{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(podnetworkingsResource, name, pt, data, subresources...), &v1beta1.PodNetworking{})
 	if obj == nil {
 		return nil, err
 	}

@@ -30,7 +30,7 @@ import (
 // PodNetworkingsGetter has a method to return a PodNetworkingInterface.
 // A group's client should implement this interface.
 type PodNetworkingsGetter interface {
-	PodNetworkings(namespace string) PodNetworkingInterface
+	PodNetworkings() PodNetworkingInterface
 }
 
 // PodNetworkingInterface has methods to work with PodNetworking resources.
@@ -50,14 +50,12 @@ type PodNetworkingInterface interface {
 // podNetworkings implements PodNetworkingInterface
 type podNetworkings struct {
 	client rest.Interface
-	ns     string
 }
 
 // newPodNetworkings returns a PodNetworkings
-func newPodNetworkings(c *PodnetworkingV1beta1Client, namespace string) *podNetworkings {
+func newPodNetworkings(c *PodnetworkingV1beta1Client) *podNetworkings {
 	return &podNetworkings{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -65,7 +63,6 @@ func newPodNetworkings(c *PodnetworkingV1beta1Client, namespace string) *podNetw
 func (c *podNetworkings) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.PodNetworking, err error) {
 	result = &v1beta1.PodNetworking{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -82,7 +79,6 @@ func (c *podNetworkings) List(ctx context.Context, opts v1.ListOptions) (result 
 	}
 	result = &v1beta1.PodNetworkingList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -99,7 +95,6 @@ func (c *podNetworkings) Watch(ctx context.Context, opts v1.ListOptions) (watch.
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -110,7 +105,6 @@ func (c *podNetworkings) Watch(ctx context.Context, opts v1.ListOptions) (watch.
 func (c *podNetworkings) Create(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.CreateOptions) (result *v1beta1.PodNetworking, err error) {
 	result = &v1beta1.PodNetworking{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(podNetworking).
@@ -123,7 +117,6 @@ func (c *podNetworkings) Create(ctx context.Context, podNetworking *v1beta1.PodN
 func (c *podNetworkings) Update(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.UpdateOptions) (result *v1beta1.PodNetworking, err error) {
 	result = &v1beta1.PodNetworking{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		Name(podNetworking.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -138,7 +131,6 @@ func (c *podNetworkings) Update(ctx context.Context, podNetworking *v1beta1.PodN
 func (c *podNetworkings) UpdateStatus(ctx context.Context, podNetworking *v1beta1.PodNetworking, opts v1.UpdateOptions) (result *v1beta1.PodNetworking, err error) {
 	result = &v1beta1.PodNetworking{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		Name(podNetworking.Name).
 		SubResource("status").
@@ -152,7 +144,6 @@ func (c *podNetworkings) UpdateStatus(ctx context.Context, podNetworking *v1beta
 // Delete takes name of the podNetworking and deletes it. Returns an error if one occurs.
 func (c *podNetworkings) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		Name(name).
 		Body(&opts).
@@ -167,7 +158,6 @@ func (c *podNetworkings) DeleteCollection(ctx context.Context, opts v1.DeleteOpt
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -180,7 +170,6 @@ func (c *podNetworkings) DeleteCollection(ctx context.Context, opts v1.DeleteOpt
 func (c *podNetworkings) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.PodNetworking, err error) {
 	result = &v1beta1.PodNetworking{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("podnetworkings").
 		Name(name).
 		SubResource(subresources...).

@@ -63,7 +63,7 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	}
 	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if val, found := pod.Annotations[ipamd.AnnotationPodNetworkingName]; found {
-		podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings("").Get(context.TODO(), val, metav1.GetOptions{})
+		podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), val, metav1.GetOptions{})
 		if err != nil {
 			ulog.Errorf("failed to get podnetworking with name %s: %v", val, err)
 			return nil
