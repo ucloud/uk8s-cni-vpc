@@ -158,7 +158,7 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 	if netConfig != nil {
 		// TODO: try multiple subnets
 		subnetId = netConfig.Spec.SubnetIds[0]
-		netIf, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), subnetId)
+		netIf, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), subnetId, client.InstanceID())
 		if err != nil {
 			ulog.Errorf("failed to ensure uni attached to %s/%s/%s/%s: %v",
 				client.AvailabilityZone(), client.VPCID(), subnetId, client.InstanceID(), err)
@@ -189,6 +189,7 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
+	ulog.Infof("AllocateSecondaryIp %s to %s success: %s", resp.IpInfo.Ip, objectId)
 	// Record PodNetwork Information in local storage
 	pNet := rpc.PodNetwork{
 		PodName:      podName,
@@ -229,6 +230,7 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, subnetId, instanceId 
 	if err != nil {
 		return nil, err
 	}
+
 	err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId)
 	if err != nil {
 		ulog.Warnf("Attach UNI %s to %s failed, trying to delete uni", uni.InterfaceId, instanceId)
@@ -259,6 +261,7 @@ func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpc, subnet string) (*v
 	if resp.RetCode != 0 {
 		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
 	}
+	ulog.Infof("Create uni %s from subnet %s success", resp.NetworkInterface.InterfaceId, subnet)
 	return &resp.NetworkInterface, nil
 }
 
@@ -272,6 +275,7 @@ func deleteNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) {
 	if resp.RetCode != 0 {
 		ulog.Errorf("DeleteNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
 	}
+	ulog.Infof("Delete uni %s success", interfaceId)
 }
 
 func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
@@ -285,6 +289,7 @@ func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId strin
 	if resp.RetCode != 0 {
 		return fmt.Errorf("AttachNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
 	}
+	ulog.Infof("Attach uni %s to %s success", interfaceId, instanceId)
 	return nil
 }
 
