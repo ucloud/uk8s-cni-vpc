@@ -15,20 +15,26 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"google.golang.org/grpc"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/ucloud/ucloud-sdk-go/services/vpc"
+	"github.com/ucloud/ucloud-sdk-go/ucloud"
+	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
+	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
-
-	"github.com/ucloud/ucloud-sdk-go/ucloud"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
-
-	"google.golang.org/grpc"
 )
 
 const (
@@ -49,11 +55,41 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 	return database.NewBolt[rpc.PodNetwork](dbName, db)
 }
 
+func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) *podnetworkingv1beta1.PodNetworking {
+	crdClient, err := kubeclient.GetNodeCRDClient()
+	if err != nil {
+		ulog.Errorf("failed to get crd kube client: %v", err)
+		return nil
+	}
+	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
+	if val, found := pod.Annotations[ipamd.AnnotationPodNetworkingName]; found {
+		podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings("").Get(context.TODO(), val, metav1.GetOptions{})
+		if err != nil {
+			ulog.Errorf("failed to get podnetworking with name %s: %v", val, err)
+			return nil
+		}
+		if len(podnet.Spec.SubnetIds) == 0 {
+			ulog.Errorf("podnetworking %s has no subnet", val)
+			return nil
+		}
+		return podnet
+	}
+	return nil
+}
+
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
 func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
+	kubeClient, err := kubeclient.GetNodeClient()
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
+	}
+	netConfig := getPodNetworkingConfig(kubeClient, podName, podNS)
+
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
-	if err == nil {
+	// 只有没有匹配到podnetworking资源时才尝试向ipamd申请ip
+	// TODO: ipamd支持podnetworking
+	if err == nil && netConfig == nil {
 		// There are two prerequisites for using ipamd:
 		// 1. The connection is successfully established, that is, Dial ok.
 		// 2. Check ipamd with ping request, it is in a healthy state.
@@ -68,10 +104,6 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		}
 	}
 
-	kubeClient, err := kubeclient.GetNodeClient()
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
-	}
 	enableStaticIP, _, err := ipamd.IsPodEnableStaticIP(kubeClient, podName, podNS)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to check pod static ip enable: %v", err)
@@ -81,17 +113,8 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		return nil, false, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
 	}
 
-	uapi, err := uapi.NewClient()
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to init uapi client: %v", err)
-	}
-	macAddr, err := iputils.GetNodeMacAddress("")
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to get addr: %v", err)
-	}
-
 	// ipamd not available, directly call vpc to allocate IP
-	ip, err := allocateSecondaryIP(uapi, macAddr, podName, podNS, sandboxId)
+	ip, err := allocateSecondaryIP(netConfig, podName, podNS, sandboxId)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to call vpc: %v", err)
 	}
@@ -122,32 +145,52 @@ func releasePodIp(podName, podNS, sandboxId string, pNet *rpc.PodNetwork) error 
 	}
 }
 
-func allocateSecondaryIP(client *uapi.ApiClient, macAddr string, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
-	cli, err := client.VPCClient()
+func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
+	client, err := uapi.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to init uapi client: %v", err)
+	}
+	vpccli, err := client.VPCClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
-
-	req := cli.NewAllocateSecondaryIpRequest()
-	req.Mac = &macAddr
-	ObjectId, err := uapi.GetObjectIDForSecondaryIP()
-	if err != nil {
-		ObjectId = client.InstanceID()
+	var subnetId, objectId, macAddr string
+	if netConfig != nil {
+		// TODO: try multiple subnets
+		subnetId = netConfig.Spec.SubnetIds[0]
+		netIf, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), subnetId)
+		if err != nil {
+			ulog.Errorf("failed to ensure uni attached to %s/%s/%s/%s: %v",
+				client.AvailabilityZone(), client.VPCID(), subnetId, client.InstanceID(), err)
+			return nil, fmt.Errorf("failed to ensure uni attached: %v", err)
+		}
+		objectId, macAddr = netIf.Id, netIf.Mac
+	} else {
+		subnetId = client.SubnetID()
+		macAddr, err = iputils.GetNodeMacAddress("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get addr: %v", err)
+		}
+		objectId, err = uapi.GetObjectIDForSecondaryIP()
+		if err != nil {
+			objectId = client.InstanceID()
+		}
 	}
 
-	req.ObjectId = ucloud.String(ObjectId)
+	req := vpccli.NewAllocateSecondaryIpRequest()
 	req.Zone = ucloud.String(client.AvailabilityZone())
 	req.VPCId = ucloud.String(client.VPCID())
-	req.SubnetId = ucloud.String(client.SubnetID())
-
-	resp, err := cli.AllocateSecondaryIp(req)
+	req.SubnetId = ucloud.String(subnetId)
+	req.Mac = ucloud.String(macAddr)
+	req.ObjectId = ucloud.String(objectId)
+	resp, err := vpccli.AllocateSecondaryIp(req)
 	if err != nil {
 		ulog.Errorf("AllocateSecondaryIp for unetwork api service error: %v", err)
 		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
 	// Record PodNetwork Information in local storage
-	return &rpc.PodNetwork{
+	pNet := rpc.PodNetwork{
 		PodName:      podName,
 		PodNS:        podNS,
 		SandboxID:    sandboxID,
@@ -159,7 +202,90 @@ func allocateSecondaryIP(client *uapi.ApiClient, macAddr string, podName, podNS,
 		Mask:         resp.IpInfo.Mask,
 		MacAddress:   resp.IpInfo.Mac,
 		CreateTime:   time.Now().Unix(),
-	}, nil
+	}
+	if strings.HasPrefix(objectId, "uni-") {
+		pNet.InterfaceID = objectId
+	}
+	return &pNet, nil
+}
+
+func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, subnetId, instanceId string) (*metadata.MDNetworkInterfaces, error) {
+	if !uapi.IsUNIFeatureUHost() {
+		return nil, errors.New("UHost/UPHost not support uni feature")
+	}
+	meta, err := uapi.GetMeta()
+	if err != nil {
+		return nil, fmt.Errorf("Get metadata error: %v", err)
+	}
+
+	for _, netIf := range meta.UHost.NetworkInterfaces {
+		if netIf.SubnetId == subnetId && !netIf.Default {
+			return &netIf, nil
+		}
+	}
+
+	// No available uni for subnet, need to allocate new one
+	uni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId)
+	if err != nil {
+		return nil, err
+	}
+	err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId)
+	if err != nil {
+		ulog.Warnf("Attach UNI %s to %s failed, trying to delete uni", uni.InterfaceId, instanceId)
+		deleteNetworkInterface(vpccli, uni.InterfaceId)
+		return nil, err
+	}
+
+	fakeMD := metadata.MDNetworkInterfaces{
+		Id:       uni.InterfaceId,
+		Mac:      uni.MacAddress,
+		SubnetId: uni.SubnetId,
+		VpcId:    uni.VPCId,
+	}
+	return &fakeMD, nil
+}
+
+func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpc, subnet string) (*vpc.NetworkInterfaceInfo, error) {
+	req := vpccli.NewCreateNetworkInterfaceRequest()
+	req.Zone = ucloud.String(zone)
+	req.VPCId = ucloud.String(vpc)
+	req.SubnetId = ucloud.String(subnet)
+	// TODO: support secgroup
+	// req.PrioritySecGroup = xxx
+	resp, err := vpccli.CreateNetworkInterface(req)
+	if err != nil {
+		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api service error: %v", err)
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+	}
+	return &resp.NetworkInterface, nil
+}
+
+func deleteNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) {
+	req := vpccli.NewDeleteNetworkInterfaceRequest()
+	req.InterfaceId = ucloud.String(interfaceId)
+	resp, err := vpccli.DeleteNetworkInterface(req)
+	if err != nil {
+		ulog.Errorf("DeleteNetworkInterface from unetwork api service error: %v", err)
+	}
+	if resp.RetCode != 0 {
+		ulog.Errorf("DeleteNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+	}
+}
+
+func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
+	req := vpccli.NewAttachNetworkInterfaceRequest()
+	req.InterfaceId = ucloud.String(interfaceId)
+	req.InstanceId = ucloud.String(instanceId)
+	resp, err := vpccli.AttachNetworkInterface(req)
+	if err != nil {
+		return fmt.Errorf("AttachNetworkInterface from unetwork api service error: %v", err)
+	}
+	if resp.RetCode != 0 {
+		return fmt.Errorf("AttachNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+	}
+	return nil
 }
 
 func checkSecondaryIPExist(ip, mac string) (bool, error) {
