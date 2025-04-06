@@ -126,7 +126,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
-	// No UNI, we need to setup vethpair to pod's network namespace
+	// No dedicated UNI, we need to setup vethpair to pod's network namespace
 	if !pNet.DedicatedUNI {
 		err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pNet)
 		if err != nil {
@@ -136,7 +136,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
-	//ip_local_port_range
+	// ip_local_port_range
 	err = setNodePortRange(podName, podNS, netNS, sandBoxId, pNet)
 	if err != nil {
 		ulog.Errorf("Set node port range network error: %v", err)
