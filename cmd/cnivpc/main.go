@@ -108,13 +108,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 	var masterInterface string
 	if strings.HasPrefix(pNet.InterfaceID, "uni-") {
 		link, err := iputils.GetLinkByMac(pNet.MacAddress)
-		if err != nil {
+		if err == nil {
 			masterInterface = link.Attrs().Name
 		}
 	}
 	if masterInterface == "" {
 		masterInterface = iputils.GetMasterInterface()
 	}
+	ulog.Infof("pod %s/%s master interface: %s", podNS, podName, masterInterface)
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {

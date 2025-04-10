@@ -26,7 +26,6 @@ import (
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
-	"github.com/ucloud/ucloud-sdk-go/ucloud/metadata"
 	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
@@ -62,6 +61,10 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		return nil
 	}
 	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		ulog.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
+		return nil
+	}
 	if val, found := pod.Annotations[ipamd.AnnotationPodNetworkingName]; found {
 		podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), val, metav1.GetOptions{})
 		if err != nil {
@@ -116,7 +119,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	// ipamd not available, directly call vpc to allocate IP
 	ip, err := allocateSecondaryIP(netConfig, podName, podNS, sandboxId)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to call vpc: %v", err)
+		return nil, false, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
 	return ip, false, nil
 }
@@ -162,15 +165,16 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 	}
 	var subnetId, objectId, macAddr string
 	if netConfig != nil {
-		// TODO: try multiple subnets
-		subnetId = netConfig.Spec.SubnetIds[0]
-		netIf, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), subnetId, client.InstanceID())
+		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), netConfig.Spec.SubnetIds)
 		if err != nil {
-			ulog.Errorf("failed to ensure uni attached to %s/%s/%s/%s: %v",
-				client.AvailabilityZone(), client.VPCID(), subnetId, client.InstanceID(), err)
-			return nil, fmt.Errorf("failed to ensure uni attached: %v", err)
+			ulog.Errorf("failed to create or attach uni from %s to %s: %v", subnetId, client.InstanceID(), err)
+			return nil, errors.New("failed to ensure uni attached")
 		}
-		objectId, macAddr = netIf.Id, netIf.Mac
+		if err = ensureUNIRoutes(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
+			return nil, err
+		}
+
+		objectId, macAddr = uni.InterfaceId, uni.MacAddress
 	} else {
 		subnetId = client.SubnetID()
 		macAddr, err = iputils.GetNodeMacAddress("")
@@ -216,7 +220,7 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 	return &pNet, nil
 }
 
-func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, subnetId, instanceId string) (*metadata.MDNetworkInterfaces, error) {
+func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, subnetIds []string) (uni *vpc.NetworkInterface, err error) {
 	if !uapi.IsUNIFeatureUHost() {
 		return nil, errors.New("UHost/UPHost not support uni feature")
 	}
@@ -225,42 +229,44 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, subnetId, instanceId 
 		return nil, fmt.Errorf("Get metadata error: %v", err)
 	}
 
+	var interfaceId string
+	defer func() {
+		if interfaceId != "" {
+			uni, err = describeNetworkInterface(vpccli, interfaceId)
+		}
+	}()
+	// TODO: try multiple subnets
+	subnetId := subnetIds[0]
 	for _, netIf := range meta.UHost.NetworkInterfaces {
 		if netIf.SubnetId == subnetId && !netIf.Default {
-			return &netIf, nil
+			interfaceId = netIf.Id
+			return
 		}
 	}
 
 	// No available uni for subnet, need to allocate new one
-	uni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId)
+	newUni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId)
 	if err != nil {
 		return nil, err
 	}
+	if len(newUni.PrivateIpSet) == 0 {
+		ulog.Warnf("UNI %s has no ip, trying to delete", newUni.InterfaceId)
+		deleteNetworkInterface(vpccli, newUni.InterfaceId)
+		return nil, errors.New("Created newUni with no ip")
+	}
 
-	err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId)
-	if err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId); err != nil {
-		ulog.Warnf("Attach UNI %s to %s failed, trying to delete uni", uni.InterfaceId, instanceId)
-		deleteNetworkInterface(vpccli, uni.InterfaceId)
+	if err = attachNetworkInterface(vpccli, newUni.InterfaceId, instanceId); err != nil {
+		ulog.Warnf("Attach UNI %s to %s failed, trying to delete newUni", newUni.InterfaceId, instanceId)
+		deleteNetworkInterface(vpccli, newUni.InterfaceId)
 		return nil, err
 	}
 
-	if err = ensureUNIRoutes(uni); err != nil {
-		ulog.Errorf("ensure uni primary ip route failed: %v", err)
-		return nil, err
-	}
-
-	fakeMDNic := metadata.MDNetworkInterfaces{
-		Id:       uni.InterfaceId,
-		Mac:      uni.MacAddress,
-		SubnetId: uni.SubnetId,
-		VpcId:    uni.VPCId,
-	}
-	return &fakeMDNic, nil
+	interfaceId = newUni.InterfaceId
+	return
 }
 
 func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpc, subnet string) (*vpc.NetworkInterfaceInfo, error) {
 	req := vpccli.NewCreateNetworkInterfaceRequest()
-	req.Zone = ucloud.String(zone)
 	req.VPCId = ucloud.String(vpc)
 	req.SubnetId = ucloud.String(subnet)
 	// TODO: support secgroup
@@ -302,6 +308,22 @@ func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId strin
 	}
 	ulog.Infof("Attach uni %s to %s success", interfaceId, instanceId)
 	return nil
+}
+
+func describeNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) (*vpc.NetworkInterface, error) {
+	req := vpccli.NewDescribeNetworkInterfaceRequest()
+	req.InterfaceId = []string{interfaceId}
+	resp, err := vpccli.DescribeNetworkInterface(req)
+	if err != nil {
+		return nil, fmt.Errorf("DescribeNetworkInterface from unetwork api service error: %v", err)
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("DescribeNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+	}
+	if len(resp.NetworkInterfaceSet) == 0 {
+		return nil, fmt.Errorf("DescribeNetworkInterface %s returned empty NetworkInterfaceSet", interfaceId)
+	}
+	return &resp.NetworkInterfaceSet[0], nil
 }
 
 func checkSecondaryIPExist(ip, mac, subnet string) (bool, error) {

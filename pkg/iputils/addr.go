@@ -70,7 +70,6 @@ func GetLinkByMac(mac string) (netlink.Link, error) {
 
 	for _, link := range links {
 		if strings.ToLower(link.Attrs().HardwareAddr.String()) == strings.ToLower(mac) {
-			ulog.Infof("Link %s (type %s) is the interface of mac %s", link.Attrs().Name, link.Type(), mac)
 			return link, nil
 		}
 	}
