@@ -87,7 +87,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	netConfig := getPodNetworkingConfig(kubeClient, podName, podNS)
 
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
-	// 只有没有匹配到podnetworking资源时才尝试向ipamd申请ip
+	// request ipamd only if pod is not bound to podnetworking resource
 	// TODO: ipamd支持podnetworking
 	if err == nil && netConfig == nil {
 		// There are two prerequisites for using ipamd:
@@ -195,7 +195,7 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 		return nil, fmt.Errorf("failed to call api: %v", err)
 	}
 
-	ulog.Infof("AllocateSecondaryIp %s to %s success: %s", resp.IpInfo.Ip, objectId)
+	ulog.Infof("AllocateSecondaryIp %s to %s success", resp.IpInfo.Ip, objectId)
 	// Record PodNetwork Information in local storage
 	pNet := rpc.PodNetwork{
 		PodName:      podName,
@@ -236,10 +236,16 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, subnetId, instanceId 
 	if err != nil {
 		return nil, err
 	}
+
 	err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId)
-	if err != nil {
+	if err = attachNetworkInterface(vpccli, uni.InterfaceId, instanceId); err != nil {
 		ulog.Warnf("Attach UNI %s to %s failed, trying to delete uni", uni.InterfaceId, instanceId)
 		deleteNetworkInterface(vpccli, uni.InterfaceId)
+		return nil, err
+	}
+
+	if err = ensureUNIRoutes(uni); err != nil {
+		ulog.Errorf("ensure uni primary ip route failed: %v", err)
 		return nil, err
 	}
 
