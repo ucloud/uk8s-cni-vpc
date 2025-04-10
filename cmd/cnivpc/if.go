@@ -27,7 +27,6 @@ import (
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
 	"github.com/j-keck/arping"
-	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/vishvananda/netlink"
 )
 
@@ -43,7 +42,7 @@ func ensureUNIIPRules(uniip, ifname string) error {
 		return fmt.Errorf("List ip rules error: %v", err)
 	}
 	for _, rule := range rules {
-		if rule.Src.IP.String() == uniip {
+		if rule.Src != nil && rule.Src.IP.String() == uniip {
 			if rule.Table == tableId {
 				return nil
 			} else {
@@ -52,18 +51,20 @@ func ensureUNIIPRules(uniip, ifname string) error {
 		}
 	}
 
-	err = netlink.RuleAdd(&netlink.Rule{
-		Table: tableId,
-		Src:   netlink.NewIPNet(net.ParseIP(uniip)),
-	})
+	rule := netlink.NewRule()
+	rule.Priority = 2048
+	rule.Table = tableId
+	rule.Src = netlink.NewIPNet(net.ParseIP(uniip))
+	err = netlink.RuleAdd(rule)
 	if err != nil {
 		return fmt.Errorf("fail to add ip rule from %s table %d: %v", uniip, tableId, err)
 	}
+	ulog.Infof("Add ip rule from %s table %d success", uniip, tableId)
 	return nil
 }
 
-func ensureUNIRoutes(uni *vpc.NetworkInterfaceInfo) error {
-	link, err := iputils.GetLinkByMac(uni.MacAddress)
+func ensureUNIRoutes(primaryIP, mac, gateway, netmask string) error {
+	link, err := iputils.GetLinkByMac(mac)
 	if err != nil {
 		return err
 	}
@@ -72,10 +73,6 @@ func ensureUNIRoutes(uni *vpc.NetworkInterfaceInfo) error {
 	if err != nil {
 		return fmt.Errorf("cannot convert link name %s to number: %v", linkName, err)
 	}
-	if len(uni.PrivateIpSet) == 0 {
-		return fmt.Errorf("no primary ip to be assigned to uni %v", uni.InterfaceId)
-	}
-	primaryIP := uni.PrivateIpSet[0]
 	if err = ensureUNIIPRules(primaryIP, linkName); err != nil {
 		return err
 	}
@@ -86,7 +83,7 @@ func ensureUNIRoutes(uni *vpc.NetworkInterfaceInfo) error {
 	}
 	// uni primary ip route setup is ok
 	for _, route := range routes {
-		if route.Gw.String() == uni.Gateway && route.Table == tableId {
+		if route.Gw.String() == gateway && route.Table == tableId {
 			return nil
 		}
 	}
@@ -98,17 +95,16 @@ func ensureUNIRoutes(uni *vpc.NetworkInterfaceInfo) error {
 		ulog.Errorf("Modify mtu for link %v error: %v", linkName, err)
 		return err
 	}
-	h, _ := net.IPMask(net.ParseIP(uni.Netmask).To4()).Size()
+	h, _ := net.IPMask(net.ParseIP(netmask).To4()).Size()
 	addr, err := netlink.ParseAddr(primaryIP + "/" + fmt.Sprintf("%d", h))
 	if err != nil {
-		return fmt.Errorf("parse addr %s of uni %v failed, %v", uni.PrivateIpSet[0], uni.InterfaceId, err)
+		return fmt.Errorf("parse addr %s failed, %v", primaryIP, err)
 	}
 	// Assign primary ip to interface
 	// ip addr replace 10.0.2.51/24 dev eth1
 	err = netlink.AddrReplace(link, addr)
 	if err != nil {
-		return fmt.Errorf("cannot add uni %v ip %s to %s: %v",
-			uni.InterfaceId, primaryIP, linkName, err)
+		return fmt.Errorf("cannot add ip %s to dev %s: %v", addr.String(), linkName, err)
 	}
 	// Set link up (ip link set dev eth1 up)
 	err = netlink.LinkSetUp(link)
@@ -123,13 +119,14 @@ func ensureUNIRoutes(uni *vpc.NetworkInterfaceInfo) error {
 		LinkIndex: link.Attrs().Index,
 		Scope:     netlink.SCOPE_UNIVERSE,
 		Dst:       nil,
-		Gw:        net.ParseIP(uni.Gateway),
+		Gw:        net.ParseIP(gateway),
 		Src:       net.ParseIP(primaryIP),
 		Table:     tableId,
 	})
 	if err != nil {
-		return fmt.Errorf("unable to add default route to gateway %s on table %d: %v", uni.Gateway, tableId, err)
+		return fmt.Errorf("unable to add default route to gateway %s on table %d: %v", gateway, tableId, err)
 	}
+	ulog.Infof("Add route default via %s dev %s table %d success", gateway, linkName, tableId)
 
 	// Send a gratuitous arp, using hardware address of UNI
 	for i := 0; i < 3; i++ {
