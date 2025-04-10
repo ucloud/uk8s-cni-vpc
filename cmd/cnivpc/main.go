@@ -90,7 +90,6 @@ func cmdAdd(args *skel.CmdArgs) error {
 	podNS := podArgs["K8S_POD_NAMESPACE"]
 	sandBoxId := podArgs["K8S_POD_INFRA_CONTAINER_ID"]
 	netNS := os.Getenv("CNI_NETNS")
-	masterInterface := iputils.GetMasterInterface()
 
 	// To assign a VPC IP for pod
 	pNet, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
@@ -106,6 +105,16 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
+	var masterInterface string
+	if strings.HasPrefix(pNet.InterfaceID, "uni-") {
+		link, err := iputils.GetLinkByMac(pNet.MacAddress)
+		if err != nil {
+			masterInterface = link.Attrs().Name
+		}
+	}
+	if masterInterface == "" {
+		masterInterface = iputils.GetMasterInterface()
+	}
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
@@ -113,7 +122,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to enable proxy arp: %v", err)
 		}
-		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), iputils.GetMasterInterface())
+		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), masterInterface)
 		if err != nil {
 			ulog.Errorf("Detect conflict for ip %v of pod %v error: %v", pNet.VPCIP, podName, err)
 			rollbackReleaseIP()

@@ -21,6 +21,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/snapshot"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
@@ -182,6 +183,14 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		snapshot.Add("ip", "netns", "list-id")
 		snapshot.Save()
 
+		return err
+	}
+
+	if !pNet.DedicatedUNI && strings.HasPrefix(pNet.InterfaceID, "uni-") {
+		err = ensureUNIIPRules(pNet.VPCIP, nic)
+		if err != nil {
+			ulog.Errorf("Add ip rule for %s secondary ip %v error: %v", pNet.InterfaceID, pNet.VPCIP, err)
+		}
 		return err
 	}
 	return nil
