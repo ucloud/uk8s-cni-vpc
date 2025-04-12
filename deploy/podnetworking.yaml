@@ -19,6 +19,9 @@ spec:
                   type: array
                   items:
                     type: string
+                  x-kubernetes-validations:
+                    - message: Value is immutable
+                      rule: self == oldSelf
                 subnetIds:
                   type: array
                   items:
