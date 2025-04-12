@@ -30,20 +30,19 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-// ip rule add from 10.0.2.51 table 1002
-func ensureUNIIPRules(uniip, ifname string) error {
-	tableId, err := ifNameToTableId(ifname)
-	if err != nil {
-		return fmt.Errorf("cannot convert link name %s to number: %v", ifname, err)
-	}
+const MainTableId = 254
+const DstRulePriority = 512
+const SrcRulePriority = 2048
 
+// ip rule add from all to 10.0.2.51 table main
+func ensureDstIPRoutePolicy(ip string) error {
 	rules, err := netlink.RuleList(netlink.FAMILY_V4)
 	if err != nil {
-		return fmt.Errorf("List ip rules error: %v", err)
+		return fmt.Errorf("ip rules list error: %v", err)
 	}
 	for _, rule := range rules {
-		if rule.Src != nil && rule.Src.IP.String() == uniip {
-			if rule.Table == tableId {
+		if rule.Dst != nil && rule.Dst.IP.String() == ip {
+			if rule.Table == MainTableId && rule.Src == nil {
 				return nil
 			} else {
 				netlink.RuleDel(&rule)
@@ -52,18 +51,71 @@ func ensureUNIIPRules(uniip, ifname string) error {
 	}
 
 	rule := netlink.NewRule()
-	rule.Priority = 2048
-	rule.Table = tableId
-	rule.Src = netlink.NewIPNet(net.ParseIP(uniip))
+	rule.Priority = DstRulePriority
+	rule.Table = MainTableId
+	rule.Dst = netlink.NewIPNet(net.ParseIP(ip))
 	err = netlink.RuleAdd(rule)
 	if err != nil {
-		return fmt.Errorf("fail to add ip rule from %s table %d: %v", uniip, tableId, err)
+		return fmt.Errorf("fail to add ip rule from all to %s table main: %v", ip, err)
 	}
-	ulog.Infof("Add ip rule from %s table %d success", uniip, tableId)
+	ulog.Infof("Add ip rule from all to %s table main success", ip)
 	return nil
 }
 
-func ensureUNIRoutes(primaryIP, mac, gateway, netmask string) error {
+// ip rule add from 10.0.2.51 table 1002
+func ensureSrcIPRoutePolicy(ip, ifname string) error {
+	tableId, err := ifNameToTableId(ifname)
+	if err != nil {
+		return fmt.Errorf("cannot convert link name %s to number: %v", ifname, err)
+	}
+
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("ip rules list error: %v", err)
+	}
+	for _, rule := range rules {
+		if rule.Src != nil && rule.Src.IP.String() == ip {
+			if rule.Table == tableId && rule.Dst == nil {
+				return nil
+			} else {
+				netlink.RuleDel(&rule)
+			}
+		}
+	}
+
+	rule := netlink.NewRule()
+	rule.Priority = SrcRulePriority
+	rule.Table = tableId
+	rule.Src = netlink.NewIPNet(net.ParseIP(ip))
+	err = netlink.RuleAdd(rule)
+	if err != nil {
+		return fmt.Errorf("fail to add ip rule from %s table %d: %v", ip, tableId, err)
+	}
+	ulog.Infof("Add ip rule from %s table %d success", ip, tableId)
+	return nil
+}
+
+func cleanUpIPRoutePolicy(ip string) {
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		ulog.Errorf("ip rules list error: %v", err)
+		return
+	}
+	for _, rule := range rules {
+		if rule.Dst != nil && rule.Dst.IP.String() == ip {
+			if err = netlink.RuleDel(&rule); err != nil {
+				ulog.Errorf("ip rule del from all to %s err: %v", ip, err)
+			}
+		}
+		if rule.Src != nil && rule.Src.IP.String() == ip {
+			if err = netlink.RuleDel(&rule); err != nil {
+				ulog.Errorf("ip rule del from %s table %d err: %v", ip, rule.Table, err)
+			}
+		}
+	}
+}
+
+func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 	link, err := iputils.GetLinkByMac(mac)
 	if err != nil {
 		return err
@@ -73,7 +125,7 @@ func ensureUNIRoutes(primaryIP, mac, gateway, netmask string) error {
 	if err != nil {
 		return fmt.Errorf("cannot convert link name %s to number: %v", linkName, err)
 	}
-	if err = ensureUNIIPRules(primaryIP, linkName); err != nil {
+	if err = ensureSrcIPRoutePolicy(primaryIP, linkName); err != nil {
 		return err
 	}
 
