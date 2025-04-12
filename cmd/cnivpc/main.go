@@ -231,6 +231,8 @@ func cmdDel(args *skel.CmdArgs) error {
 		if err != nil {
 			ulog.Warnf("Delete pod network record of %s/%s error: %v", podName, podNS, err)
 		}
+
+		cleanUpIPRoutePolicy(pNet.VPCIP)
 	}
 
 	err = portmap.CmdDel(args, conf)

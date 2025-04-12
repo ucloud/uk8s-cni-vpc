@@ -170,7 +170,7 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 			ulog.Errorf("failed to create or attach uni from %s to %s: %v", subnetId, client.InstanceID(), err)
 			return nil, errors.New("failed to ensure uni attached")
 		}
-		if err = ensureUNIRoutes(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
+		if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
 			return nil, err
 		}
 

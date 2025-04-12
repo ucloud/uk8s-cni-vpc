@@ -84,14 +84,17 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 	case os.IsExist(err):
 		// The route might be added by calico.
 		ulog.Infof("The route %q already exists, skip adding it", dstcidr.IP)
-		return nil
 
 	case err != nil:
 		return fmt.Errorf("Add route %q error: %v", dstcidr.IP, err)
 
 	default:
-		return nil
 	}
+
+	if err = ensureDstIPRoutePolicy(ip); err != nil {
+		return err
+	}
+	return nil
 }
 
 func enableForwarding(ipv4 bool, ipv6 bool) error {
@@ -187,8 +190,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 	}
 
 	if !pNet.DedicatedUNI && strings.HasPrefix(pNet.InterfaceID, "uni-") {
-		err = ensureUNIIPRules(pNet.VPCIP, nic)
-		if err != nil {
+		if err = ensureSrcIPRoutePolicy(pNet.VPCIP, nic); err != nil {
 			ulog.Errorf("Add ip rule for %s secondary ip %v error: %v", pNet.InterfaceID, pNet.VPCIP, err)
 		}
 		return err
