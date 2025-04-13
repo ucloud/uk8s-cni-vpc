@@ -41,7 +41,8 @@ const (
 	CNIVpcDbName       = "cni-vpc-network"
 	storageFile        = "/opt/cni/networkbolt.db"
 
-	UAPIErrorIPNotExst = 58221
+	UAPIErrorIPNotExst       = 58221
+	DefaultPodNetworkingName = "default"
 )
 
 // Get local bolt db storage for cni-vpc-network
@@ -55,6 +56,9 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 }
 
 func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) *podnetworkingv1beta1.PodNetworking {
+	if !uapi.IsUNIFeatureUHost() {
+		return nil
+	}
 	crdClient, err := kubeclient.GetNodeCRDClient()
 	if err != nil {
 		ulog.Errorf("failed to get crd kube client: %v", err)
@@ -65,19 +69,22 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		ulog.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
 		return nil
 	}
-	if val, found := pod.Annotations[ipamd.AnnotationPodNetworkingName]; found {
-		podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), val, metav1.GetOptions{})
-		if err != nil {
-			ulog.Errorf("failed to get podnetworking with name %s: %v", val, err)
-			return nil
-		}
-		if len(podnet.Spec.SubnetIds) == 0 {
-			ulog.Errorf("podnetworking %s has no subnet", val)
-			return nil
-		}
-		return podnet
+	pnName, _ := pod.Annotations[ipamd.AnnotationPodNetworkingName]
+	if pnName == "" {
+		pnName = DefaultPodNetworkingName
 	}
-	return nil
+	podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
+	if err != nil {
+		if pnName != DefaultPodNetworkingName {
+			ulog.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
+		}
+		return nil
+	}
+	if len(podnet.Spec.SubnetIds) == 0 {
+		ulog.Errorf("podnetworking %s has no subnet", pnName)
+		return nil
+	}
+	return podnet
 }
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
@@ -87,12 +94,12 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
 	}
-	netConfig := getPodNetworkingConfig(kubeClient, podName, podNS)
+	pnConfig := getPodNetworkingConfig(kubeClient, podName, podNS)
 
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	// request ipamd only if pod is not bound to podnetworking resource
 	// TODO: ipamd支持podnetworking
-	if err == nil && netConfig == nil {
+	if err == nil && pnConfig == nil {
 		// There are two prerequisites for using ipamd:
 		// 1. The connection is successfully established, that is, Dial ok.
 		// 2. Check ipamd with ping request, it is in a healthy state.
@@ -117,7 +124,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
-	ip, err := allocateSecondaryIP(netConfig, podName, podNS, sandboxId)
+	ip, err := allocateSecondaryIP(pnConfig, podName, podNS, sandboxId)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
@@ -154,7 +161,7 @@ func releasePodIp(podName, podNS, sandboxId string, pNet *rpc.PodNetwork) error 
 	}
 }
 
-func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
+func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
 	client, err := uapi.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init uapi client: %v", err)
@@ -164,8 +171,8 @@ func allocateSecondaryIP(netConfig *podnetworkingv1beta1.PodNetworking, podName,
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
 	var subnetId, objectId, macAddr string
-	if netConfig != nil {
-		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), netConfig.Spec.SubnetIds)
+	if pnConfig != nil {
+		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds)
 		if err != nil {
 			ulog.Errorf("failed to create or attach uni from %s to %s: %v", subnetId, client.InstanceID(), err)
 			return nil, errors.New("failed to ensure uni attached")
