@@ -242,8 +242,25 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 			uni, err = describeNetworkInterface(vpccli, interfaceId)
 		}
 	}()
-	// TODO: try multiple subnets
-	subnetId := subnetIds[0]
+
+	var subnetId string
+	for _, candicateSubnetId := range subnetIds {
+		remains, err := checkSubnetRemainsIP(vpccli, vpcId, candicateSubnetId)
+		if err != nil {
+			ulog.Warnf("Check subnet %s remains ip error: %v, skip", subnetId, err)
+			continue
+		}
+		if !remains {
+			ulog.Warnf("Subnet %s has no available ip, skip", subnetId)
+			continue
+		}
+		subnetId = candicateSubnetId
+		break
+	}
+	if subnetId == "" {
+		return nil, fmt.Errorf("no available subnet in %v", subnetIds)
+	}
+
 	for _, netIf := range meta.UHost.NetworkInterfaces {
 		if netIf.SubnetId == subnetId && !netIf.Default {
 			interfaceId = netIf.Id
@@ -331,6 +348,25 @@ func describeNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) (*vpc.N
 		return nil, fmt.Errorf("DescribeNetworkInterface %s returned empty NetworkInterfaceSet", interfaceId)
 	}
 	return &resp.NetworkInterfaceSet[0], nil
+}
+
+func checkSubnetRemainsIP(vpccli *vpc.VPCClient, vpc, subnet string) (bool, error) {
+	req := vpccli.NewDescribeSubnetRequest()
+	req.ShowAvailableIPs = ucloud.Bool(true)
+	req.SubnetId = ucloud.String(subnet)
+	req.VPCId = ucloud.String(vpc)
+
+	resp, err := vpccli.DescribeSubnet(req)
+	if err != nil {
+		return false, fmt.Errorf("DescribeSubnet from unetwork api service error: %v", err)
+	}
+
+	if len(resp.DataSet) == 0 {
+		return false, fmt.Errorf("DescribeSubnet %s returned empty DataSet", subnet)
+	}
+
+	subnetInfo := resp.DataSet[0]
+	return subnetInfo.AvailableIPs > 0, nil
 }
 
 func checkSecondaryIPExist(ip, mac, subnet string) (bool, error) {
