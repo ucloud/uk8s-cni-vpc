@@ -23,6 +23,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/snapshot"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -189,7 +190,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		return err
 	}
 
-	if !pNet.DedicatedUNI && strings.HasPrefix(pNet.InterfaceID, "uni-") {
+	if !pNet.DedicatedUNI && nic != iputils.UHostMasterInterface && strings.HasPrefix(pNet.InterfaceID, "uni-") {
 		if err = ensureSrcIPRoutePolicy(pNet.VPCIP, nic); err != nil {
 			ulog.Errorf("Add ip rule for %s secondary ip %v error: %v", pNet.InterfaceID, pNet.VPCIP, err)
 		}

@@ -41,6 +41,18 @@ func GetMeta() (*metadata.Metadata, error) {
 	return meta, err
 }
 
+func ReloadMeta() (*metadata.Metadata, error) {
+	var err error
+	client := metadata.NewClient()
+	md, err := client.GetInstanceIdentityDocument()
+	if err != nil {
+		ulog.Errorf("Reload instance metadata error: %v", err)
+		return nil, err
+	}
+	meta = &md
+	return meta, err
+}
+
 const (
 	instanceTypeCube    = "Cube"
 	instanceTypeUHost   = "UHost"

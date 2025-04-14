@@ -174,8 +174,8 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 	if pnConfig != nil {
 		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds)
 		if err != nil {
-			ulog.Errorf("failed to create or attach uni from %s to %s: %v", subnetId, client.InstanceID(), err)
-			return nil, errors.New("failed to ensure uni attached")
+			ulog.Errorf("failed to create or attach UNI from %s to %s: %v", subnetId, client.InstanceID(), err)
+			return nil, errors.New("failed to ensure UNI attached")
 		}
 		if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
 			return nil, err
@@ -229,7 +229,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 
 func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, subnetIds []string) (uni *vpc.NetworkInterface, err error) {
 	if !uapi.IsUNIFeatureUHost() {
-		return nil, errors.New("UHost/UPHost not support uni feature")
+		return nil, errors.New("UHost/UPHost not support UNI feature")
 	}
 	meta, err := uapi.GetMeta()
 	if err != nil {
@@ -278,16 +278,40 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 	if len(newUni.PrivateIpSet) == 0 {
 		ulog.Warnf("UNI %s has no ip, trying to delete", newUni.InterfaceId)
 		deleteNetworkInterface(vpccli, newUni.InterfaceId)
-		return nil, errors.New("Created newUni with no ip")
+		return nil, errors.New("Created new UNI with no ip")
 	}
 
 	if err = attachNetworkInterface(vpccli, newUni.InterfaceId, instanceId); err != nil {
-		ulog.Warnf("Attach UNI %s to %s failed, trying to delete newUni", newUni.InterfaceId, instanceId)
+		ulog.Warnf("Attach UNI %s to %s failed, trying to delete new UNI", newUni.InterfaceId, instanceId)
 		deleteNetworkInterface(vpccli, newUni.InterfaceId)
 		return nil, err
 	}
 
-	interfaceId = newUni.InterfaceId
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(90 * time.Second)
+EXIT:
+	for {
+		select {
+		case <-ticker.C:
+			meta, err := uapi.ReloadMeta()
+			if err != nil {
+				continue
+			}
+			for _, netIf := range meta.UHost.NetworkInterfaces {
+				if netIf.SubnetId == subnetId && !netIf.Default {
+					interfaceId = netIf.Id
+					ulog.Infof("Refresh UNI %s info from metadata server success", interfaceId)
+					break EXIT
+				}
+			}
+		case <-timeout:
+			ulog.Warnf("Cannot load UNI %s info from metadata server, trying to delete", newUni.InterfaceId)
+			deleteNetworkInterface(vpccli, newUni.InterfaceId)
+			return nil, err
+		}
+	}
+
 	return
 }
 
@@ -304,7 +328,7 @@ func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpc, subnet string) (*v
 	if resp.RetCode != 0 {
 		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
 	}
-	ulog.Infof("Create uni %s from subnet %s success", resp.NetworkInterface.InterfaceId, subnet)
+	ulog.Infof("Create UNI %s from subnet %s success", resp.NetworkInterface.InterfaceId, subnet)
 	return &resp.NetworkInterface, nil
 }
 
@@ -313,12 +337,12 @@ func deleteNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) {
 	req.InterfaceId = ucloud.String(interfaceId)
 	resp, err := vpccli.DeleteNetworkInterface(req)
 	if err != nil {
-		ulog.Errorf("DeleteNetworkInterface from unetwork api service error: %v, uni might leak", err)
+		ulog.Errorf("DeleteNetworkInterface from unetwork api service error: %v, UNI might leak", err)
 	}
 	if resp.RetCode != 0 {
-		ulog.Errorf("DeleteNetworkInterface from unetwork api error %d: %s, uni might leak", resp.RetCode, resp.Message)
+		ulog.Errorf("DeleteNetworkInterface from unetwork api error %d: %s, UNI might leak", resp.RetCode, resp.Message)
 	}
-	ulog.Infof("Delete uni %s success", interfaceId)
+	ulog.Infof("Delete UNI %s success", interfaceId)
 }
 
 func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
@@ -329,10 +353,33 @@ func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId strin
 	if err != nil {
 		return fmt.Errorf("AttachNetworkInterface from unetwork api service error: %v", err)
 	}
+	if resp.RetCode == 58205 {
+		if uni, err := describeNetworkInterface(vpccli, interfaceId); err == nil {
+			if uni.AttachInstanceId == instanceId {
+				return nil
+			}
+		}
+	}
 	if resp.RetCode != 0 {
 		return fmt.Errorf("AttachNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
 	}
-	ulog.Infof("Attach uni %s to %s success", interfaceId, instanceId)
+	ulog.Infof("Attach UNI %s to %s success", interfaceId, instanceId)
+	return nil
+}
+
+func detachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
+
+	req := vpccli.NewDetachNetworkInterfaceRequest()
+	req.InterfaceId = ucloud.String(interfaceId)
+	req.InstanceId = ucloud.String(instanceId)
+	resp, err := vpccli.DetachNetworkInterface(req)
+	if err != nil {
+		return fmt.Errorf("DetachNetworkInterface from unetwork api service error: %v", err)
+	}
+	if resp.RetCode != 0 && resp.RetCode != 58206 { // 58206 => already detached
+		return fmt.Errorf("DetachNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+	}
+	ulog.Infof("Detach UNI %s from %s success", interfaceId, instanceId)
 	return nil
 }
 
