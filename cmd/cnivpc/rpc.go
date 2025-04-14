@@ -243,15 +243,16 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 		}
 	}()
 
+	ulog.Infof("Begin to check subnets: %v", subnetIds)
 	var subnetId string
 	for _, candicateSubnetId := range subnetIds {
 		remains, err := checkSubnetRemainsIP(vpccli, vpcId, candicateSubnetId)
 		if err != nil {
-			ulog.Warnf("Check subnet %s remains ip error: %v, skip", subnetId, err)
+			ulog.Warnf("Check subnet %s remains ip error: %v, skip", candicateSubnetId, err)
 			continue
 		}
 		if !remains {
-			ulog.Warnf("Subnet %s has no available ip, skip", subnetId)
+			ulog.Warnf("Subnet %s has no available ip, skip", candicateSubnetId)
 			continue
 		}
 		subnetId = candicateSubnetId
@@ -260,6 +261,7 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 	if subnetId == "" {
 		return nil, fmt.Errorf("no available subnet in %v", subnetIds)
 	}
+	ulog.Infof("Selected subnet %s", subnetId)
 
 	for _, netIf := range meta.UHost.NetworkInterfaces {
 		if netIf.SubnetId == subnetId && !netIf.Default {
