@@ -15,7 +15,7 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -140,6 +140,10 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		}
 	}
 
+	// Turn off reverse path filter
+	if err := ensureRPFilterOff(); err != nil {
+		return err
+	}
 	// Modify MTU:
 	// ip link set dev eth1 mtu 1452
 	err = netlink.LinkSetMTU(link, defaultMtu)
@@ -190,30 +194,21 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 	return nil
 }
 
-func ensureLineInFile(f, line string) error {
-	// 读取整个文件内容
-	content, err := ioutil.ReadFile(f)
-	if err != nil && !os.IsNotExist(err) {
+func ensureRPFilterOff() error {
+	rpFilterCnfFile := "/proc/sys/net/ipv4/conf/all/rp_filter"
+	err := os.Truncate(rpFilterCnfFile, 0)
+	if err != nil {
+		ulog.Errorf("Truncate file %s error: %v", rpFilterCnfFile, err)
 		return err
 	}
-
-	// 检查是否已包含该行
-	lines := strings.Split(string(content), "\n")
-	for _, l := range lines {
-		if strings.TrimSpace(l) == strings.TrimSpace(line) {
-			return nil
-		}
+	f, err := os.OpenFile(rpFilterCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	defer f.Close()
+	if err != nil {
+		ulog.Errorf("Open file %s error: %v", rpFilterCnfFile, err)
+		return err
 	}
-
-	// 追加行到文件末尾
-	newContent := string(content)
-	if len(newContent) > 0 && !strings.HasSuffix(newContent, "\n") {
-		newContent += "\n"
-	}
-	newContent += line + "\n"
-
-	// 写入文件
-	return ioutil.WriteFile(f, []byte(newContent), 0644)
+	io.WriteString(f, "0")
+	return nil
 }
 
 // eth1 => 1001, eth15 => 1015
