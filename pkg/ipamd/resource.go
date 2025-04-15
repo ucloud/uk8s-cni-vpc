@@ -29,7 +29,7 @@ import (
 
 // convert vCPU to uni limits according to
 // https://docs.ucloud.cn/vpc/guide/uni
-func getNodeUNILimits() int {
+func GetNodeUNILimits() int {
 	//	http://100.80.80.80/meta-data/v1/uhost/cpu
 	mdcli := metadata.NewClient()
 	cpu, err := mdcli.GetMetadata("/uhost/cpu")
@@ -57,7 +57,7 @@ func getNodeUNILimits() int {
 
 func startDevicePlugin() error {
 	// Init deviceplugin daemon for UNI
-	s := deviceplugin.NewUNIDevicePlugin(getNodeUNILimits())
+	s := deviceplugin.NewUNIDevicePlugin(GetNodeUNILimits())
 	err := s.Serve(deviceplugin.ResourceName)
 	if err != nil {
 		return fmt.Errorf("failed to set deviceplugin on node, %v", err)
