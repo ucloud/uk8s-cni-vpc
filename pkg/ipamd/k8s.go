@@ -51,7 +51,8 @@ const (
 	AnnotationSecurityGroupId  = "network.kubernetes.io/security-group-id"
 	AnnotationShareBandwidthId = "network.kubernetes.io/sharebandwidth-id"
 
-	AnnotationPodNetworkingName = "network.kubernetes.io/ucloud-pod-networking-name"
+	AnnotationPodNetworkingName    = "network.kubernetes.io/ucloud-pod-networking-name"
+	AnnotationPodNetworkingDisable = "network.kubernetes.io/ucloud-pod-networking-disable"
 
 	//解决calico policy 在使用了postStart情况下规则无法及时下发的问题 https://github.com/projectcalico/calico/issues/3499
 	//annotaion 见calico项目 https://github.com/projectcalico/calico/blob/79b442a53adb7d7f1fd62927d9322daf87dce9de/libcalico-go/lib/backend/k8s/conversion/constants.go

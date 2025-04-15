@@ -71,6 +71,12 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		ulog.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
 		return nil
 	}
+	disable := pod.Annotations[ipamd.AnnotationPodNetworkingDisable]
+	if disable == "true" {
+		// User disable podnetworking manually
+		ulog.Infof("pod %s/%s disabled podnetworking", podNS, podName)
+		return nil
+	}
 	pnName, _ := pod.Annotations[ipamd.AnnotationPodNetworkingName]
 	if pnName == "" {
 		pnName = DefaultPodNetworkingName
