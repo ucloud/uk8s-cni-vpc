@@ -1,6 +1,6 @@
 module github.com/ucloud/uk8s-cni-vpc
 
-go 1.20
+go 1.21
 
 require (
 	github.com/boltdb/bolt v1.3.1
@@ -13,7 +13,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.7.0
 	github.com/ucloud/go-lockfile v0.1.0
-	github.com/ucloud/ucloud-sdk-go v0.22.30
+	github.com/ucloud/ucloud-sdk-go v0.22.33
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/vishvananda/netns v0.0.0-20210104183010-2eb08e3e575f
 	google.golang.org/grpc v1.56.3
