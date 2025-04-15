@@ -17,6 +17,7 @@ spec:
               properties:
                 securityGroupIds:
                   type: array
+                  maxItems: 5
                   items:
                     type: string
                   x-kubernetes-validations:
