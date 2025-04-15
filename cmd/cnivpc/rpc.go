@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
+	"github.com/ucloud/ucloud-sdk-go/ucloud/request"
 	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
@@ -172,7 +174,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 	}
 	var subnetId, objectId, macAddr string
 	if pnConfig != nil {
-		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds)
+		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds)
 		if err != nil {
 			ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
 			return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
@@ -227,7 +229,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 	return &pNet, nil
 }
 
-func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, subnetIds []string) (uni *vpc.NetworkInterface, err error) {
+func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, subnetIds, secGroupIds []string) (uni *vpc.NetworkInterface, err error) {
 	if !uapi.IsUNIFeatureUHost() {
 		return nil, errors.New("UHost/UPHost not support UNI feature")
 	}
@@ -275,7 +277,7 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 	}
 
 	// No available uni for subnet, need to allocate new one
-	newUni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId)
+	newUni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId, secGroupIds)
 	if err != nil {
 		return nil, err
 	}
@@ -319,20 +321,33 @@ EXIT:
 	return
 }
 
-func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpc, subnet string) (*vpc.NetworkInterfaceInfo, error) {
+func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpcId, subnet string, secGroupIds []string) (*vpc.NetworkInterfaceInfo, error) {
 	req := vpccli.NewCreateNetworkInterfaceRequest()
-	req.VPCId = ucloud.String(vpc)
+	req.VPCId = ucloud.String(vpcId)
 	req.SubnetId = ucloud.String(subnet)
-	// TODO: support secgroup
-	// req.PrioritySecGroup = xxx
+	if len(secGroupIds) > 0 {
+		// Set security group for this UNI
+		req.PrioritySecGroup = make([]vpc.CreateNetworkInterfaceParamPrioritySecGroup, 0, len(secGroupIds))
+		slices.Reverse(secGroupIds)
+		for idx, secGroup := range secGroupIds {
+			req.PrioritySecGroup = append(req.PrioritySecGroup, vpc.CreateNetworkInterfaceParamPrioritySecGroup{
+				Priority:   ucloud.Int(idx + 1),
+				SecGroupId: ucloud.String(secGroup),
+			})
+
+		}
+		req.SecurityMode = ucloud.Int(1)
+	}
+	req.SetEncoder(request.NewJSONEncoder(vpccli.GetConfig(), vpccli.GetCredential()))
+
 	resp, err := vpccli.CreateNetworkInterface(req)
 	if err != nil {
 		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api service error: %v", err)
 	}
 	if resp.RetCode != 0 {
-		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
+		return nil, fmt.Errorf("CreateNetworkInterface from unetwork api error %d: %s, %s", resp.RetCode, resp.Message, resp.GetRequestUUID())
 	}
-	ulog.Infof("Create UNI %s from subnet %s success", resp.NetworkInterface.InterfaceId, subnet)
+	ulog.Infof("Create UNI %s from subnet %s success, %s", resp.NetworkInterface.InterfaceId, subnet, resp.GetRequestUUID())
 	return &resp.NetworkInterface, nil
 }
 
@@ -346,7 +361,7 @@ func deleteNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) {
 	if resp.RetCode != 0 {
 		ulog.Errorf("DeleteNetworkInterface from unetwork api error %d: %s, UNI might leak", resp.RetCode, resp.Message)
 	}
-	ulog.Infof("Delete UNI %s success", interfaceId)
+	ulog.Infof("Delete UNI %s success, %s", interfaceId, resp.GetRequestUUID())
 }
 
 func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
