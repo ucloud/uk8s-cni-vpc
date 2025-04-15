@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -334,7 +333,6 @@ func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpcId, subnet string, s
 	if len(secGroupIds) > 0 {
 		// Set security group for this UNI
 		req.PrioritySecGroup = make([]vpc.CreateNetworkInterfaceParamPrioritySecGroup, 0, len(secGroupIds))
-		slices.Reverse(secGroupIds)
 		for idx, secGroup := range secGroupIds {
 			req.PrioritySecGroup = append(req.PrioritySecGroup, vpc.CreateNetworkInterfaceParamPrioritySecGroup{
 				Priority:   ucloud.Int(idx + 1),
