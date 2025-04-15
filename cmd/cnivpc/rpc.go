@@ -174,8 +174,8 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 	if pnConfig != nil {
 		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds)
 		if err != nil {
-			ulog.Errorf("failed to create or attach UNI from %s to %s: %v", subnetId, client.InstanceID(), err)
-			return nil, errors.New("failed to ensure UNI attached")
+			ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
+			return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
 		}
 		if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
 			return nil, err
@@ -268,6 +268,10 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 			interfaceId = netIf.Id
 			return
 		}
+	}
+	uniLimit := ipamd.GetNodeUNILimits()
+	if len(meta.UHost.NetworkInterfaces) >= uniLimit {
+		return nil, fmt.Errorf("Cannot attach more than %d UNI to %v", uniLimit, instanceId)
 	}
 
 	// No available uni for subnet, need to allocate new one
