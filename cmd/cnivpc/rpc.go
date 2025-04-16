@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
@@ -82,13 +83,13 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	}
 	podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
 	if err != nil {
-		if pnName != DefaultPodNetworkingName {
-			ulog.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
+		if !k8serr.IsNotFound(err) || pnName != DefaultPodNetworkingName {
+			ulog.Warnf("failed to get podnetworking with name %s: %v", pnName, err)
 		}
 		return nil
 	}
 	if len(podnet.Spec.SubnetIds) == 0 {
-		ulog.Errorf("podnetworking %s has no subnet", pnName)
+		ulog.Warnf("podnetworking %s has no subnet", pnName)
 		return nil
 	}
 	return podnet

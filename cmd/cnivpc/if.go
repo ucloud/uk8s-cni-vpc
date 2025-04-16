@@ -95,24 +95,24 @@ func ensureSrcIPRoutePolicy(ip, ifname string) error {
 	return nil
 }
 
-func cleanUpIPRoutePolicy(ip string) {
+func cleanUpIPRoutePolicy(ip string) error {
 	rules, err := netlink.RuleList(netlink.FAMILY_V4)
 	if err != nil {
-		ulog.Errorf("ip rules list error: %v", err)
-		return
+		return fmt.Errorf("ip rules list error: %v", err)
 	}
 	for _, rule := range rules {
 		if rule.Dst != nil && rule.Dst.IP.String() == ip {
 			if err = netlink.RuleDel(&rule); err != nil {
-				ulog.Errorf("ip rule del from all to %s err: %v", ip, err)
+				return fmt.Errorf("ip rule del from all to %s err: %v", ip, err)
 			}
 		}
 		if rule.Src != nil && rule.Src.IP.String() == ip {
 			if err = netlink.RuleDel(&rule); err != nil {
-				ulog.Errorf("ip rule del from %s table %d err: %v", ip, rule.Table, err)
+				return fmt.Errorf("ip rule del from %s table %d err: %v", ip, rule.Table, err)
 			}
 		}
 	}
+	return nil
 }
 
 func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
