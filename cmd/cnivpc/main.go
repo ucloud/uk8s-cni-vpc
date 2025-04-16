@@ -223,16 +223,15 @@ func cmdDel(args *skel.CmdArgs) error {
 	// podIP may be deleted in previous CNI DEL action
 	if pNet != nil && len(pNet.VPCIP) > 0 {
 		ulog.Infof("Pod network info %+v", pNet)
-		err = releasePodIp(podName, podNS, sandBoxId, pNet)
-		if err != nil {
+		if err = cleanUpIPRoutePolicy(pNet.VPCIP); err != nil {
+			return fmt.Errorf("fail to clean up ip rules: %v", err)
+		}
+		if err = releasePodIp(podName, podNS, sandBoxId, pNet); err != nil {
 			return fmt.Errorf("failed to release pod ip %v, %v", pNet.VPCIP, err)
 		}
-		err = delPodNetworkRecord(podName, podNS, sandBoxId, pNet)
-		if err != nil {
+		if err = delPodNetworkRecord(podName, podNS, sandBoxId, pNet); err != nil {
 			ulog.Warnf("Delete pod network record of %s/%s error: %v", podName, podNS, err)
 		}
-
-		cleanUpIPRoutePolicy(pNet.VPCIP)
 	}
 
 	err = portmap.CmdDel(args, conf)
