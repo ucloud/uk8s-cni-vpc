@@ -116,6 +116,10 @@ func detectIpConflictWithGratuitousArp(srcIP net.IP, ifaceName string) (bool, er
 				} else {
 					// just support ipv4
 					if bytes.Compare(dg.spa, srcIP.To4()) == 0 {
+						if bytes.Equal(dg.sha, iface.HardwareAddr) {
+							// If arp response has the same mac address, consider this no conflict
+							continue
+						}
 						resultChan <- result{true, nil}
 						return
 					}
