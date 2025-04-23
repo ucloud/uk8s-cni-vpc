@@ -331,18 +331,26 @@ func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpcId, subnet string, s
 	req := vpccli.NewCreateNetworkInterfaceRequest()
 	req.VPCId = ucloud.String(vpcId)
 	req.SubnetId = ucloud.String(subnet)
+	var prioritySecGroup []vpc.CreateNetworkInterfaceParamPrioritySecGroup
 	if len(secGroupIds) > 0 {
 		// Set security group for this UNI
-		req.PrioritySecGroup = make([]vpc.CreateNetworkInterfaceParamPrioritySecGroup, 0, len(secGroupIds))
-		for idx, secGroup := range secGroupIds {
-			req.PrioritySecGroup = append(req.PrioritySecGroup, vpc.CreateNetworkInterfaceParamPrioritySecGroup{
-				Priority:   ucloud.Int(idx + 1),
+		idx := 1
+		for _, secGroup := range secGroupIds {
+			if !strings.HasPrefix(secGroup, "secgroup-") {
+				continue
+			}
+			prioritySecGroup = append(prioritySecGroup, vpc.CreateNetworkInterfaceParamPrioritySecGroup{
+				Priority:   ucloud.Int(idx),
 				SecGroupId: ucloud.String(secGroup),
 			})
-
+			idx++
 		}
+	}
+	if len(prioritySecGroup) > 0 {
+		req.PrioritySecGroup = prioritySecGroup
 		req.SecurityMode = ucloud.Int(1)
 	}
+
 	req.SetEncoder(request.NewJSONEncoder(vpccli.GetConfig(), vpccli.GetCredential()))
 
 	resp, err := vpccli.CreateNetworkInterface(req)
