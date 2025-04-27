@@ -57,42 +57,43 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 	return database.NewBolt[rpc.PodNetwork](dbName, db)
 }
 
-func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) *podnetworkingv1beta1.PodNetworking {
+func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, error) {
 	if !uapi.IsUNIFeatureUHost() {
-		return nil
+		return nil, nil
 	}
-	crdClient, err := kubeclient.GetNodeCRDClient()
-	if err != nil {
-		ulog.Errorf("failed to get crd kube client: %v", err)
-		return nil
-	}
+
 	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		ulog.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
-		return nil
+		return nil, fmt.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
 	}
 	disable := pod.Annotations[ipamd.AnnotationPodNetworkingDisable]
 	if disable == "true" {
 		// User disable podnetworking manually
 		ulog.Infof("pod %s/%s disabled podnetworking", podNS, podName)
-		return nil
+		return nil, nil
 	}
+
 	pnName, _ := pod.Annotations[ipamd.AnnotationPodNetworkingName]
 	if pnName == "" {
 		pnName = DefaultPodNetworkingName
 	}
+
+	crdClient, err := kubeclient.GetNodeCRDClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get crd kube client: %v", err)
+	}
 	podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
 	if err != nil {
-		if !k8serr.IsNotFound(err) || pnName != DefaultPodNetworkingName {
-			ulog.Warnf("failed to get podnetworking with name %s: %v", pnName, err)
+		// 当指定了自定义的 podnetworking 且无法查到时，也要阻塞 pod 创建
+		if k8serr.IsNotFound(err) && pnName == DefaultPodNetworkingName {
+			return nil, nil
 		}
-		return nil
+		return nil, fmt.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
 	}
 	if len(podnet.Spec.SubnetIds) == 0 {
-		ulog.Warnf("podnetworking %s has no subnet", pnName)
-		return nil
+		return nil, fmt.Errorf("podnetworking %s has no subnet", pnName)
 	}
-	return podnet
+	return podnet, nil
 }
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
@@ -102,7 +103,10 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
 	}
-	pnConfig := getPodNetworkingConfig(kubeClient, podName, podNS)
+	pnConfig, err := getPodNetworkingConfig(kubeClient, podName, podNS)
+	if err != nil {
+		return nil, false, err
+	}
 
 	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
 	// request ipamd only if pod is not bound to podnetworking resource
