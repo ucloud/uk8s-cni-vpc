@@ -193,6 +193,25 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 			return nil, err
 		}
 
+		req := vpccli.NewDescribeVPCRequest()
+		req.VPCIds = append(req.VPCIds, client.VPCID())
+		resp, err := vpccli.DescribeVPC(req)
+		if err != nil {
+			ulog.Errorf("DescribeVPC from unetwork api service error: %v", err)
+			return nil, fmt.Errorf("failed to call vpc describe api: %v", err)
+		}
+		if len(resp.DataSet) == 0 {
+			return nil, fmt.Errorf("cannot find vpc %s", client.VPCID())
+		}
+		vpcInfo := resp.DataSet[0]
+
+		ulog.Infof("Ensure host rule policy for %v", vpcInfo.Network)
+		err = ensureHostRulePolicy(vpcInfo.Network)
+		if err != nil {
+			ulog.Errorf("Ensure host rule policy error: %v", err)
+			return nil, fmt.Errorf("failed to ensure host rule policy: %v", err)
+		}
+
 		objectId, macAddr = uni.InterfaceId, uni.MacAddress
 	} else {
 		subnetId = client.SubnetID()

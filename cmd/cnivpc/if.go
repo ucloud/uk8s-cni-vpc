@@ -30,9 +30,13 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const MainTableId = 254
-const DstRulePriority = 512
-const SrcRulePriority = 2048
+const (
+	MainTableId = 254
+
+	DstRulePriority  = 512
+	HostRulePriority = 1024
+	SrcRulePriority  = 2048
+)
 
 // ip rule add from all to 10.0.2.51 table main
 func ensureDstIPRoutePolicy(ip string) error {
@@ -208,6 +212,61 @@ func ensureRPFilterOff() error {
 		return err
 	}
 	io.WriteString(f, "0")
+	return nil
+}
+
+// Host rule is used to traffic outside packets (ip rule not to <VPC's subnet>) to table main
+// >> ip rule add not from all to 10.0.0.0/16 lookup main
+func ensureHostRulePolicy(networks []string) error {
+	networksSet := make(map[string]struct{}, len(networks))
+	for _, network := range networks {
+		networksSet[network] = struct{}{}
+	}
+
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+
+	existsNetworks := make(map[string]struct{}, len(networks))
+	for _, rule := range rules {
+		if rule.Priority != HostRulePriority || rule.Table != MainTableId {
+			// This is not a host rule
+			continue
+		}
+		dst := rule.Dst.String()
+		if _, ok := networksSet[dst]; !ok {
+			ulog.Infof("Delete host rule for vpc network %q", dst)
+			err = netlink.RuleDel(&rule)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		existsNetworks[dst] = struct{}{}
+	}
+
+	for _, network := range networks {
+		if _, ok := existsNetworks[network]; ok {
+			continue
+		}
+		rule := netlink.NewRule()
+		rule.Priority = HostRulePriority
+		rule.Table = MainTableId
+		ipnet, err := netlink.ParseIPNet(network)
+		if err != nil {
+			return fmt.Errorf("parse network %q error: %v", network, err)
+		}
+		rule.Dst = ipnet
+		rule.Invert = true // not from all to <VPC's subnet>
+
+		ulog.Infof("Add host rule for vpc network %q", network)
+		err = netlink.RuleAdd(rule)
+		if err != nil {
+			return fmt.Errorf("add host rule %q error: %v", network, err)
+		}
+	}
+
 	return nil
 }
 
