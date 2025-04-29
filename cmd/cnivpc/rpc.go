@@ -182,7 +182,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
-	var subnetId, objectId, macAddr string
+	var subnetId, objectId, macAddr, hostAddr string
 	if pnConfig != nil {
 		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds)
 		if err != nil {
@@ -212,7 +212,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 			return nil, fmt.Errorf("failed to ensure host rule policy: %v", err)
 		}
 
-		objectId, macAddr = uni.InterfaceId, uni.MacAddress
+		objectId, macAddr, hostAddr = uni.InterfaceId, uni.MacAddress, uni.PrivateIpSet[0]
 	} else {
 		subnetId = client.SubnetID()
 		macAddr, err = iputils.GetNodeMacAddress("")
@@ -250,6 +250,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 		Gateway:      resp.IpInfo.Gateway,
 		Mask:         resp.IpInfo.Mask,
 		MacAddress:   resp.IpInfo.Mac,
+		HostAddr:     hostAddr,
 		CreateTime:   time.Now().Unix(),
 	}
 	if strings.HasPrefix(objectId, "uni-") {

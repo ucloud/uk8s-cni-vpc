@@ -155,33 +155,35 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		ulog.Errorf("Modify mtu for link %v error: %v", linkName, err)
 		return err
 	}
-	h, _ := net.IPMask(net.ParseIP(netmask).To4()).Size()
-	addr, err := netlink.ParseAddr(primaryIP + "/" + fmt.Sprintf("%d", h))
-	if err != nil {
-		return fmt.Errorf("parse addr %s failed, %v", primaryIP, err)
-	}
-	// Assign primary ip to interface
-	// ip addr replace 10.0.2.51/24 dev eth1
-	err = netlink.AddrReplace(link, addr)
-	if err != nil {
-		return fmt.Errorf("cannot add ip %s to dev %s: %v", addr.String(), linkName, err)
-	}
+
 	// Set link up (ip link set dev eth1 up)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
 		return fmt.Errorf("cannot set link %s up %v", linkName, err)
 	}
 
-	// Establish default route:
-	// ip route replace default via 10.0.2.1 dev eth1 src 10.0.2.51 table 1001
+	// Establish gateway route:
+	// ip route replace 10.0.2.1 dev eth1 scope link table 1001
 	// use `replace` so that command do not fail if `default` route already exists
+	err = netlink.RouteReplace(&netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Scope:     netlink.SCOPE_LINK,
+		Dst:       netlink.NewIPNet(net.ParseIP(gateway)),
+		Table:     tableId,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to add route to gateway %s on table %d: %v", gateway, tableId, err)
+	}
+
+	// Establish default route:
+	// ip route replace default via 10.0.2.1 dev eth1 table 1001
 	err = netlink.RouteReplace(&netlink.Route{
 		LinkIndex: link.Attrs().Index,
 		Scope:     netlink.SCOPE_UNIVERSE,
 		Dst:       nil,
 		Gw:        net.ParseIP(gateway),
-		Src:       net.ParseIP(primaryIP),
-		Table:     tableId,
+		// Src:       net.ParseIP(primaryIP),
+		Table: tableId,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to add default route to gateway %s on table %d: %v", gateway, tableId, err)
@@ -230,7 +232,7 @@ func ensureHostRulePolicy(networks []string) error {
 
 	existsNetworks := make(map[string]struct{}, len(networks))
 	for _, rule := range rules {
-		if rule.Priority != HostRulePriority || rule.Table != MainTableId {
+		if rule.Priority != HostRulePriority || rule.Table != MainTableId || rule.Dst == nil {
 			// This is not a host rule
 			continue
 		}

@@ -147,22 +147,30 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()
-	mface, err := netlink.LinkByName(nic)
-	if err != nil {
-		ulog.Errorf("Lookup %s error: %v", nic, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
-		return fmt.Errorf("failed to lookup %s: %v", nic, err)
+
+	hostAddr := pNet.HostAddr
+	if hostAddr == "" {
+		mface, err := netlink.LinkByName(nic)
+		if err != nil {
+			ulog.Errorf("Lookup %s error: %v", nic, err)
+			releasePodIp(podName, podNS, sandBoxId, pNet)
+			return fmt.Errorf("failed to lookup %s: %v", nic, err)
+		}
+
+		hostAddrs, err := netlink.AddrList(mface, netlink.FAMILY_V4)
+		if err != nil || len(hostAddrs) == 0 {
+			ulog.Errorf("Get host ip addresses for %q error: %v", mface, err)
+			releasePodIp(podName, podNS, sandBoxId, pNet)
+			return fmt.Errorf("failed to get host ip addresses for %q: %v", mface, err)
+		}
+
+		hostAddr = hostAddrs[0].IP.String()
 	}
 
-	hostAddrs, err := netlink.AddrList(mface, netlink.FAMILY_V4)
-	if err != nil || len(hostAddrs) == 0 {
-		ulog.Errorf("Get host ip addresses for %q error: %v", mface, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
-		return fmt.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
-	}
 	hostVeth, _, err := setupVethPair(netns, os.Getenv("CNI_IFNAME"),
 		generateHostVethName(hostVethPrefix, podNS, podName),
-		defaultMtu, hostAddrs,
+		defaultMtu,
+		hostAddr,
 		pNet.VPCIP+"/32")
 	if err != nil {
 		ulog.Errorf("Setup vethpair between host and container error: %v", err)
@@ -199,7 +207,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 	return nil
 }
 
-func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAddrs []netlink.Addr, containerIp string) (*current.Interface, *current.Interface, error) {
+func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAddr, containerIp string) (*current.Interface, *current.Interface, error) {
 	hostInterface := &current.Interface{}
 	containerInterface := &current.Interface{}
 	// Clean up old veth, if old veth exists
@@ -244,7 +252,7 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 			LinkIndex: contVeth.Index,
 			Scope:     netlink.SCOPE_UNIVERSE,
 			Dst:       nil,
-			Gw:        hostAddrs[0].IP,
+			Gw:        net.ParseIP(hostAddr),
 			Flags:     int(netlink.FLAG_ONLINK),
 		})
 		if err != nil {
@@ -255,7 +263,7 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 		err = netlink.NeighAdd(
 			&netlink.Neigh{
 				LinkIndex:    contVeth.Index,
-				IP:           hostAddrs[0].IP,
+				IP:           net.ParseIP(hostAddr),
 				State:        netlink.NUD_PERMANENT,
 				HardwareAddr: hostVeth.HardwareAddr,
 			},
