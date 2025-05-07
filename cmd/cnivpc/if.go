@@ -168,15 +168,38 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		return fmt.Errorf("cannot set link %s up %v", linkName, err)
 	}
 
-	// Establish default route:
-	// ip route replace default via 10.0.2.1 dev eth1 src 10.0.2.51 table 1001
+	// Delete uni routes in other tables
+	routes, err = netlink.RouteList(link, netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+	for _, route := range routes {
+		if route.Table == tableId {
+			continue
+		}
+		netlink.RouteDel(&route)
+	}
+
+	// Establish gateway route:
+	// ip route replace 10.0.2.1 dev eth1 scope link table 1001
 	// use `replace` so that command do not fail if `default` route already exists
+	err = netlink.RouteReplace(&netlink.Route{
+		LinkIndex: link.Attrs().Index,
+		Scope:     netlink.SCOPE_LINK,
+		Dst:       netlink.NewIPNet(net.ParseIP(gateway)),
+		Table:     tableId,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to add route to gateway %s on table %d: %v", gateway, tableId, err)
+	}
+
+	// Establish default route:
+	// ip route replace default via 10.0.2.1 dev eth1 table 1001
 	err = netlink.RouteReplace(&netlink.Route{
 		LinkIndex: link.Attrs().Index,
 		Scope:     netlink.SCOPE_UNIVERSE,
 		Dst:       nil,
 		Gw:        net.ParseIP(gateway),
-		Src:       net.ParseIP(primaryIP),
 		Table:     tableId,
 	})
 	if err != nil {
