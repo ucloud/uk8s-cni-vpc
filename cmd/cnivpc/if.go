@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/coreos/go-iptables/iptables"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
@@ -30,9 +31,12 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const MainTableId = 254
-const DstRulePriority = 512
-const SrcRulePriority = 2048
+const (
+	MainTableId          = 254
+	DstRulePriority      = 512
+	OutboundRulePriority = 1024
+	SrcRulePriority      = 2048
+)
 
 // ip rule add from all to 10.0.2.51 table main
 func ensureDstIPRoutePolicy(ip string) error {
@@ -214,6 +218,68 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
+	return nil
+}
+
+func ensureUNIOutboundRule(network, primaryIP string) error {
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return err
+	}
+
+	var found bool
+	for _, rule := range rules {
+		if rule.Priority == OutboundRulePriority && rule.Dst != nil && rule.Dst.String() == network {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		_, vpcNet, err := net.ParseCIDR(network)
+		if err != nil {
+			return fmt.Errorf("parse cidr %s failed: %v", network, err)
+		}
+
+		rule := netlink.NewRule()
+		rule.Priority = OutboundRulePriority
+		rule.Table = MainTableId
+		rule.Dst = vpcNet
+		rule.Invert = true // not from all to <vpc>
+		err = netlink.RuleAdd(rule)
+		if err != nil {
+			return fmt.Errorf("failed to add outbound rule: %v", err)
+		}
+	}
+
+	ipt, err := iptables.New()
+	if err != nil {
+		return err
+	}
+
+	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
+	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
+	rule := []string{
+		"!", "-d", network, // not to vpc network
+		"-m", "comment",
+		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
+		"-m", "addrtype",
+		"!", "--dst-type", "LOCAL", // not to local address
+		"-j", "SNAT",
+		"--to-source", primaryIP,
+	}
+
+	exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		err = ipt.Append("nat", "POSTROUTING", rule...)
+		if err != nil {
+			return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
+		}
+	}
+
 	return nil
 }
 

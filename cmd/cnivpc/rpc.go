@@ -193,6 +193,32 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 			return nil, err
 		}
 
+		vpcReq := vpccli.NewDescribeVPCRequest()
+		vpcReq.VPCIds = []string{client.VPCID()}
+		vpcResp, err := vpccli.DescribeVPC(vpcReq)
+		if err != nil {
+			ulog.Errorf("DescribeVPC from unetwork api service error: %v", err)
+			return nil, fmt.Errorf("failed to get vpc info: %v", err)
+		}
+		if len(vpcResp.DataSet) == 0 {
+			return nil, fmt.Errorf("vpc %s not found", client.VPCID())
+		}
+		vpcInfo := vpcResp.DataSet[0]
+
+		primaryIP, _, err := iputils.GetNodeAddress("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get master interface addr: %v", err)
+		}
+
+		for _, network := range vpcInfo.Network {
+			ulog.Infof("Ensure UNI outbound rule for network %q", network)
+			err = ensureUNIOutboundRule(network, primaryIP)
+			if err != nil {
+				ulog.Errorf("Ensure UNI outbound rule for network %q error: %v", network, err)
+				return nil, fmt.Errorf("failed to ensure outbound rule for network %s: %v", network, err)
+			}
+		}
+
 		objectId, macAddr = uni.InterfaceId, uni.MacAddress
 	} else {
 		subnetId = client.SubnetID()
