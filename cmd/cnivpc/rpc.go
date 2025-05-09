@@ -73,7 +73,7 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		return nil, nil
 	}
 
-	pnName, _ := pod.Annotations[ipamd.AnnotationPodNetworkingName]
+	pnName := pod.Annotations[ipamd.AnnotationPodNetworkingName]
 	if pnName == "" {
 		pnName = DefaultPodNetworkingName
 	}
@@ -93,6 +93,54 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	if len(podnet.Spec.SubnetIds) == 0 {
 		return nil, fmt.Errorf("podnetworking %s has no subnet", pnName)
 	}
+
+	// The UHost should support UNI
+	client, err := uapi.NewClient()
+	if err != nil {
+		return nil, err
+	}
+
+	instanceID := client.InstanceID()
+	if !strings.HasPrefix(instanceID, "uhost-") {
+		// Only uhost support UNI
+		ulog.Infof("Current instance %q is not uhost, ignore podnetworking config", instanceID)
+		return nil, nil
+	}
+
+	uhostcli, err := client.UHostClient()
+	if err != nil {
+		return nil, err
+	}
+
+	uhostReq := uhostcli.NewDescribeUHostInstanceRequest()
+	uhostReq.UHostIds = []string{instanceID}
+
+	uhostResp, err := uhostcli.DescribeUHostInstance(uhostReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call DescribeUHostInstance: %v", err)
+	}
+	if len(uhostResp.UHostSet) == 0 {
+		return nil, fmt.Errorf("cannot find uhost %s", instanceID)
+	}
+	uhostInfo := uhostResp.UHostSet[0]
+	if len(uhostInfo.IPSet) == 0 {
+		ulog.Infof("Current uhost does not have ipset, ignore podnetworking config")
+		return nil, nil
+	}
+	supportUNI := false
+	for _, ipset := range uhostInfo.IPSet {
+		// When NetworkInterfaceId is not empty and starts with 'uni-', it means that this
+		// IP is an UNI, and current uhost support adding UNI.
+		if ipset.NetworkInterfaceId != "" && strings.HasPrefix(ipset.NetworkInterfaceId, "uni-") {
+			supportUNI = true
+			break
+		}
+	}
+	if !supportUNI {
+		ulog.Infof("Current uhost does not support UNI, ignore podnetworking config")
+		return nil, nil
+	}
+
 	return podnet, nil
 }
 
