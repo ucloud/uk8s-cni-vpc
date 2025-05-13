@@ -141,6 +141,12 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		return nil, nil
 	}
 
+	if len(podnet.Spec.SecurityGroupIds) > 0 && uhostInfo.NetFeatureTag != "SecGroup" {
+		// Ignore podnetworking security group config when uhost does not support
+		ulog.Warnf("Current uhost does not enable security group, ignore podnetworking security group config")
+		podnet.Spec.SecurityGroupIds = nil
+	}
+
 	return podnet, nil
 }
 
