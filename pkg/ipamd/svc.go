@@ -123,7 +123,11 @@ func Start() error {
 	go ipd.ipPoolWatermarkManager()
 	go ipd.reconcile()
 
-	if uapi.IsUNIFeatureUHost() {
+	ability, err := uapi.GetAbility()
+	if err != nil {
+		ulog.Fatalf("Get instance ability error: %v", err)
+	}
+	if ability.SupportUNI {
 		go func() {
 			err = startDevicePlugin()
 			if err != nil {

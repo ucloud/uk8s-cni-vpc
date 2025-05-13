@@ -342,7 +342,7 @@ func (s *ipamServer) updateStatus(key string, pool database.Database[rpc.PodNetw
 	case kerrors.IsNotFound(err):
 		ipamdInfo = &ipamdv1beta1.Ipamd{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: s.nodeName,
+				Name: name,
 			},
 			Spec: ipamdv1beta1.IpamdSpec{
 				Node:   s.nodeName,

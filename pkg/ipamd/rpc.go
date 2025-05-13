@@ -139,6 +139,9 @@ func (s *ipamServer) DelPodNetworkRecord(ctx context.Context, req *rpc.DelPodNet
 
 func (s *ipamServer) GetPodNetworkRecord(ctx context.Context, req *rpc.GetPodNetworkRecordRequest) (*rpc.GetPodNetworkRecordResponse, error) {
 	p, err := s.networkDB.Get(database.PodKey(req.GetPodName(), req.GetPodNS(), req.GetSandboxID()))
+	if database.IsNotFound(err) {
+		return &rpc.GetPodNetworkRecordResponse{Code: rpc.CNIErrorCode_CNISuccess}, nil
+	}
 	if err == nil {
 		return &rpc.GetPodNetworkRecordResponse{
 			PodNetwork: p,

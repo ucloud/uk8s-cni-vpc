@@ -114,20 +114,3 @@ func GetObjectIDForSecondaryIP() (string, error) {
 
 	return instanceId, nil
 }
-
-func IsUNIFeatureUHost() bool {
-	meta, err := GetMeta()
-	if err != nil {
-		return false
-	}
-	if instanceType(meta.InstanceId) != instanceTypeUHost {
-		return false
-	}
-	var defaultNic metadata.MDNetworkInterfaces
-	for _, nic := range meta.UHost.NetworkInterfaces {
-		if nic.Default {
-			defaultNic = nic
-		}
-	}
-	return strings.HasPrefix(defaultNic.Id, "uni-")
-}

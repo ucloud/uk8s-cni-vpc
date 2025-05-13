@@ -58,7 +58,12 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 }
 
 func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, error) {
-	if !uapi.IsUNIFeatureUHost() {
+	ability, err := uapi.GetAbility()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get instance ability: %v", err)
+	}
+	if !ability.SupportUNI {
+		ulog.Infof("Current uhost does not support UNI, ignore podnetworking config")
 		return nil, nil
 	}
 
@@ -94,54 +99,11 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		return nil, fmt.Errorf("podnetworking %s has no subnet", pnName)
 	}
 
-	// The UHost should support UNI
-	client, err := uapi.NewClient()
-	if err != nil {
-		return nil, err
+	if len(podnet.Spec.SecurityGroupIds) == 0 && ability.SecGroup {
+		return nil, errors.New("inconsistency error: node has secgroup but podnetworking config has not")
 	}
 
-	instanceID := client.InstanceID()
-	if !strings.HasPrefix(instanceID, "uhost-") {
-		// Only uhost support UNI
-		ulog.Infof("Current instance %q is not uhost, ignore podnetworking config", instanceID)
-		return nil, nil
-	}
-
-	uhostcli, err := client.UHostClient()
-	if err != nil {
-		return nil, err
-	}
-
-	uhostReq := uhostcli.NewDescribeUHostInstanceRequest()
-	uhostReq.UHostIds = []string{instanceID}
-
-	uhostResp, err := uhostcli.DescribeUHostInstance(uhostReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call DescribeUHostInstance: %v", err)
-	}
-	if len(uhostResp.UHostSet) == 0 {
-		return nil, fmt.Errorf("cannot find uhost %s", instanceID)
-	}
-	uhostInfo := uhostResp.UHostSet[0]
-	if len(uhostInfo.IPSet) == 0 {
-		ulog.Infof("Current uhost does not have ipset, ignore podnetworking config")
-		return nil, nil
-	}
-	supportUNI := false
-	for _, ipset := range uhostInfo.IPSet {
-		// When NetworkInterfaceId is not empty and starts with 'uni-', it means that this
-		// IP is an UNI, and current uhost support adding UNI.
-		if ipset.NetworkInterfaceId != "" && strings.HasPrefix(ipset.NetworkInterfaceId, "uni-") {
-			supportUNI = true
-			break
-		}
-	}
-	if !supportUNI {
-		ulog.Infof("Current uhost does not support UNI, ignore podnetworking config")
-		return nil, nil
-	}
-
-	if len(podnet.Spec.SecurityGroupIds) > 0 && uhostInfo.NetFeatureTag != "SecGroup" {
+	if len(podnet.Spec.SecurityGroupIds) > 0 && !ability.SecGroup {
 		// Ignore podnetworking security group config when uhost does not support
 		ulog.Warnf("Current uhost does not enable security group, ignore podnetworking security group config")
 		podnet.Spec.SecurityGroupIds = nil
@@ -179,7 +141,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		// 2. Check ipamd with ping request, it is in a healthy state.
 		defer conn.Close()
 		c := rpc.NewCNIIpamClient(conn)
-		if enabledIpamd(c) {
+		if enabledIpamd(c) && ipamdSupportMultiSubnet(c) {
 			ip, err := allocateSecondaryIPFromIpamd(c, uni, podName, podNS, netNS, sandboxId)
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to call ipamd: %v", err)
@@ -215,7 +177,7 @@ func releasePodIp(podName, podNS, sandboxId string, pn *rpc.PodNetwork) error {
 	}
 	defer conn.Close()
 	c := rpc.NewCNIIpamClient(conn)
-	if enabledIpamd(c) {
+	if enabledIpamd(c) && ipamdSupportMultiSubnet(c) {
 		return deallocateSecondaryIPFromIpamd(c, podName, podNS, sandboxId, pn)
 	} else {
 		return deallocateSecondaryIP(pn)
@@ -328,9 +290,6 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 }
 
 func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds, secGroupIds []string) (uni *vpc.NetworkInterface, err error) {
-	if !uapi.IsUNIFeatureUHost() {
-		return nil, errors.New("UHost/UPHost not support UNI feature")
-	}
 	meta, err := uapi.GetMeta()
 	if err != nil {
 		return nil, fmt.Errorf("get metadata error: %v", err)
@@ -613,10 +572,10 @@ func deallocateSecondaryIP(pn *rpc.PodNetwork) error {
 // Check if there is ipamd service available by a gRPC Ping probe.
 func enabledIpamd(c rpc.CNIIpamClient) bool {
 	_, err := c.Ping(context.Background(), &rpc.PingRequest{})
-	if err != nil {
-		return false
-	}
+	return err == nil
+}
 
+func ipamdSupportMultiSubnet(c rpc.CNIIpamClient) bool {
 	resp, err := c.SupportMultiSubnet(context.Background(), &rpc.SupportMultiSubnetRequest{})
 	if err != nil {
 		ulog.Warnf("Failed to check multi subnet for ipamd: %v, you might need to update ipamd version", err)
