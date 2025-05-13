@@ -20,11 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc"
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/request"
@@ -36,6 +31,11 @@ import (
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -162,17 +162,25 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		return nil, false, err
 	}
 
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	var uni *vpc.NetworkInterface
+	if pnConfig != nil {
+		uni, err = initPodNetworking(pnConfig)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	// request ipamd only if pod is not bound to podnetworking resource
-	// TODO: ipamd支持podnetworking
-	if err == nil && pnConfig == nil {
+	if err == nil {
 		// There are two prerequisites for using ipamd:
 		// 1. The connection is successfully established, that is, Dial ok.
 		// 2. Check ipamd with ping request, it is in a healthy state.
 		defer conn.Close()
 		c := rpc.NewCNIIpamClient(conn)
 		if enabledIpamd(c) {
-			ip, err := allocateSecondaryIPFromIpamd(c, podName, podNS, netNS, sandboxId)
+			ip, err := allocateSecondaryIPFromIpamd(c, uni, podName, podNS, netNS, sandboxId)
 			if err != nil {
 				return nil, false, fmt.Errorf("failed to call ipamd: %v", err)
 			}
@@ -190,7 +198,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
-	ip, err := allocateSecondaryIP(pnConfig, podName, podNS, sandboxId)
+	ip, err := allocateSecondaryIP(uni, podName, podNS, sandboxId)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
@@ -199,35 +207,22 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
 // if not, do this on myself.
-func releasePodIp(podName, podNS, sandboxId string, pNet *rpc.PodNetwork) error {
-	// 当前仅cnivpc支持通过podnetworking配置分配IP到辅助虚拟网卡上
-	// TODO: ipamd support podnetworking
-	if !pNet.DedicatedUNI && strings.HasPrefix(pNet.InterfaceID, "uni-") {
-		return deallocateSecondaryIP(pNet)
-	}
-
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+func releasePodIp(podName, podNS, sandboxId string, pn *rpc.PodNetwork) error {
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		// Cannot establish gRPC unix domain connection to ipamd
-		// If pod has dedicated uni, leave this to ipamd when it is reinstalled
-		if pNet.DedicatedUNI {
-			return nil
-		}
-		return deallocateSecondaryIP(pNet)
+		return deallocateSecondaryIP(pn)
 	}
 	defer conn.Close()
 	c := rpc.NewCNIIpamClient(conn)
 	if enabledIpamd(c) {
-		return deallocateSecondaryIPFromIpamd(c, podName, podNS, sandboxId, pNet)
+		return deallocateSecondaryIPFromIpamd(c, podName, podNS, sandboxId, pn)
 	} else {
-		if pNet.DedicatedUNI {
-			return nil
-		}
-		return deallocateSecondaryIP(pNet)
+		return deallocateSecondaryIP(pn)
 	}
 }
 
-func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
+func allocateSecondaryIP(uni *vpc.NetworkInterface, podName, podNS, sandboxID string) (*rpc.PodNetwork, error) {
 	client, err := uapi.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init uapi client: %v", err)
@@ -237,43 +232,8 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
 	var subnetId, objectId, macAddr string
-	if pnConfig != nil {
-		uni, err := ensureSubnetUNI(vpccli, client.AvailabilityZone(), client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds)
-		if err != nil {
-			ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
-			return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
-		}
-		if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
-			return nil, err
-		}
-
-		vpcReq := vpccli.NewDescribeVPCRequest()
-		vpcReq.VPCIds = []string{client.VPCID()}
-		vpcResp, err := vpccli.DescribeVPC(vpcReq)
-		if err != nil {
-			ulog.Errorf("DescribeVPC from unetwork api service error: %v", err)
-			return nil, fmt.Errorf("failed to get vpc info: %v", err)
-		}
-		if len(vpcResp.DataSet) == 0 {
-			return nil, fmt.Errorf("vpc %s not found", client.VPCID())
-		}
-		vpcInfo := vpcResp.DataSet[0]
-
-		primaryIP, _, err := iputils.GetNodeAddress("")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get master interface addr: %v", err)
-		}
-
-		for _, network := range vpcInfo.Network {
-			ulog.Infof("Ensure UNI outbound rule for network %q", network)
-			err = ensureUNIOutboundRule(network, primaryIP)
-			if err != nil {
-				ulog.Errorf("Ensure UNI outbound rule for network %q error: %v", network, err)
-				return nil, fmt.Errorf("failed to ensure outbound rule for network %s: %v", network, err)
-			}
-		}
-
-		objectId, macAddr = uni.InterfaceId, uni.MacAddress
+	if uni != nil {
+		subnetId, objectId, macAddr = uni.SubnetId, uni.InterfaceId, uni.MacAddress
 	} else {
 		subnetId = client.SubnetID()
 		macAddr, err = iputils.GetNodeMacAddress("")
@@ -300,7 +260,7 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 
 	ulog.Infof("AllocateSecondaryIp %s to %s success", resp.IpInfo.Ip, objectId)
 	// Record PodNetwork Information in local storage
-	pNet := rpc.PodNetwork{
+	pn := rpc.PodNetwork{
 		PodName:      podName,
 		PodNS:        podNS,
 		SandboxID:    sandboxID,
@@ -314,18 +274,66 @@ func allocateSecondaryIP(pnConfig *podnetworkingv1beta1.PodNetworking, podName, 
 		CreateTime:   time.Now().Unix(),
 	}
 	if strings.HasPrefix(objectId, "uni-") {
-		pNet.InterfaceID = objectId
+		pn.InterfaceID = objectId
 	}
-	return &pNet, nil
+	return &pn, nil
 }
 
-func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, subnetIds, secGroupIds []string) (uni *vpc.NetworkInterface, err error) {
+func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.NetworkInterface, error) {
+	client, err := uapi.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to init uapi client: %v", err)
+	}
+	vpccli, err := client.VPCClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to init vpc client: %v", err)
+	}
+
+	uni, err := ensureSubnetUNI(vpccli, client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds)
+	if err != nil {
+		ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
+		return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
+	}
+	if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
+		return nil, err
+	}
+
+	vpcReq := vpccli.NewDescribeVPCRequest()
+	vpcReq.VPCIds = []string{client.VPCID()}
+	vpcResp, err := vpccli.DescribeVPC(vpcReq)
+	if err != nil {
+		ulog.Errorf("DescribeVPC from unetwork api service error: %v", err)
+		return nil, fmt.Errorf("failed to get vpc info: %v", err)
+	}
+	if len(vpcResp.DataSet) == 0 {
+		return nil, fmt.Errorf("vpc %s not found", client.VPCID())
+	}
+	vpcInfo := vpcResp.DataSet[0]
+
+	primaryIP, _, err := iputils.GetNodeAddress("")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get master interface addr: %v", err)
+	}
+
+	for _, network := range vpcInfo.Network {
+		ulog.Infof("Ensure UNI outbound rule for network %q", network)
+		err = ensureUNIOutboundRule(network, primaryIP)
+		if err != nil {
+			ulog.Errorf("Ensure UNI outbound rule for network %q error: %v", network, err)
+			return nil, fmt.Errorf("failed to ensure outbound rule for network %s: %v", network, err)
+		}
+	}
+
+	return uni, nil
+}
+
+func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds, secGroupIds []string) (uni *vpc.NetworkInterface, err error) {
 	if !uapi.IsUNIFeatureUHost() {
 		return nil, errors.New("UHost/UPHost not support UNI feature")
 	}
 	meta, err := uapi.GetMeta()
 	if err != nil {
-		return nil, fmt.Errorf("Get metadata error: %v", err)
+		return nil, fmt.Errorf("get metadata error: %v", err)
 	}
 
 	var interfaceId string
@@ -363,18 +371,18 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, zoneId, vpcId, instanceId string, su
 	}
 	uniLimit := ipamd.GetNodeUNILimits()
 	if len(meta.UHost.NetworkInterfaces) >= uniLimit {
-		return nil, fmt.Errorf("Cannot attach more than %d UNI to %v", uniLimit, instanceId)
+		return nil, fmt.Errorf("cannot attach more than %d UNI to %v", uniLimit, instanceId)
 	}
 
 	// No available uni for subnet, need to allocate new one
-	newUni, err := createNetworkInterface(vpccli, zoneId, vpcId, subnetId, secGroupIds)
+	newUni, err := createNetworkInterface(vpccli, vpcId, subnetId, secGroupIds)
 	if err != nil {
 		return nil, err
 	}
 	if len(newUni.PrivateIpSet) == 0 {
 		ulog.Warnf("UNI %s has no ip, trying to delete", newUni.InterfaceId)
 		deleteNetworkInterface(vpccli, newUni.InterfaceId)
-		return nil, errors.New("Created new UNI with no ip")
+		return nil, errors.New("created new UNI with no ip")
 	}
 
 	if err = attachNetworkInterface(vpccli, newUni.InterfaceId, instanceId); err != nil {
@@ -411,7 +419,7 @@ EXIT:
 	return
 }
 
-func createNetworkInterface(vpccli *vpc.VPCClient, zone, vpcId, subnet string, secGroupIds []string) (*vpc.NetworkInterfaceInfo, error) {
+func createNetworkInterface(vpccli *vpc.VPCClient, vpcId, subnet string, secGroupIds []string) (*vpc.NetworkInterfaceInfo, error) {
 	req := vpccli.NewCreateNetworkInterfaceRequest()
 	req.VPCId = ucloud.String(vpcId)
 	req.SubnetId = ucloud.String(subnet)
@@ -483,22 +491,6 @@ func attachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId strin
 	return nil
 }
 
-func detachNetworkInterface(vpccli *vpc.VPCClient, interfaceId, instanceId string) error {
-
-	req := vpccli.NewDetachNetworkInterfaceRequest()
-	req.InterfaceId = ucloud.String(interfaceId)
-	req.InstanceId = ucloud.String(instanceId)
-	resp, err := vpccli.DetachNetworkInterface(req)
-	if err != nil {
-		return fmt.Errorf("DetachNetworkInterface from unetwork api service error: %v", err)
-	}
-	if resp.RetCode != 0 && resp.RetCode != 58206 { // 58206 => already detached
-		return fmt.Errorf("DetachNetworkInterface from unetwork api error %d: %s", resp.RetCode, resp.Message)
-	}
-	ulog.Infof("Detach UNI %s from %s success", interfaceId, instanceId)
-	return nil
-}
-
 func describeNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) (*vpc.NetworkInterface, error) {
 	req := vpccli.NewDescribeNetworkInterfaceRequest()
 	req.InterfaceId = []string{interfaceId}
@@ -561,21 +553,21 @@ func checkSecondaryIPExist(ip, mac, subnet string) (bool, error) {
 	return false, nil
 }
 
-func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
-	if pNet.MacAddress == "" {
+func deallocateSecondaryIP(pn *rpc.PodNetwork) error {
+	if pn.MacAddress == "" {
 		macAddr, err := iputils.GetNodeMacAddress("")
 		if err == nil {
-			pNet.MacAddress = macAddr
+			pn.MacAddress = macAddr
 		} else {
-			return fmt.Errorf("Can't get default mac address %v", err)
+			return fmt.Errorf("cannot get default mac address %v", err)
 		}
 	}
-	exist, err := checkSecondaryIPExist(pNet.VPCIP, pNet.MacAddress, pNet.SubnetID)
+	exist, err := checkSecondaryIPExist(pn.VPCIP, pn.MacAddress, pn.SubnetID)
 	if err != nil {
-		return fmt.Errorf("cannot find secondary ip %s, %v", pNet.VPCIP, err)
+		return fmt.Errorf("cannot find secondary ip %s, %v", pn.VPCIP, err)
 	}
 	if !exist {
-		ulog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", pNet.VPCIP)
+		ulog.Infof("Secondary Ip %s has already been deleted in previous cni command DEL", pn.VPCIP)
 		return nil
 	}
 
@@ -589,7 +581,7 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 		return err
 	}
 
-	objectId := pNet.InterfaceID
+	objectId := pn.InterfaceID
 	if len(objectId) == 0 {
 		objectId, err = uapi.GetObjectIDForSecondaryIP()
 		if err != nil {
@@ -599,21 +591,21 @@ func deallocateSecondaryIP(pNet *rpc.PodNetwork) error {
 
 	req := cli.NewDeleteSecondaryIpRequest()
 	req.Zone = ucloud.String(client.AvailabilityZone())
-	req.Mac = ucloud.String(pNet.MacAddress)
-	req.Ip = ucloud.String(pNet.VPCIP)
+	req.Mac = ucloud.String(pn.MacAddress)
+	req.Ip = ucloud.String(pn.VPCIP)
 	req.ObjectId = ucloud.String(objectId)
-	req.VPCId = ucloud.String(pNet.VPCID)
-	req.SubnetId = ucloud.String(pNet.SubnetID)
+	req.VPCId = ucloud.String(pn.VPCID)
+	req.SubnetId = ucloud.String(pn.SubnetID)
 
 	resp, err := cli.DeleteSecondaryIp(req)
 	if err != nil {
 		if resp.RetCode == UAPIErrorIPNotExst {
-			ulog.Warnf("Secondary ip %s has been deleted before", pNet.VPCIP)
+			ulog.Warnf("Secondary ip %s has been deleted before", pn.VPCIP)
 			return nil
 		}
 		ulog.Errorf("Delete secondary ip error: %v, request is %+v", err, req)
 	} else {
-		ulog.Infof("Delete secondary ip %s success.", pNet.VPCIP)
+		ulog.Infof("Delete secondary ip %s success.", pn.VPCIP)
 	}
 	return err
 }
@@ -624,17 +616,34 @@ func enabledIpamd(c rpc.CNIIpamClient) bool {
 	if err != nil {
 		return false
 	}
+
+	resp, err := c.SupportMultiSubnet(context.Background(), &rpc.SupportMultiSubnetRequest{})
+	if err != nil {
+		ulog.Warnf("Failed to check multi subnet for ipamd: %v, you might need to update ipamd version", err)
+		return false
+	}
+	if !resp.Support {
+		ulog.Warnf("ipamd does not support multi subnet")
+		return false
+	}
+
 	return true
 }
 
-func allocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, netNS, sandboxID string) (*rpc.PodNetwork, error) {
-	r, err := c.AddPodNetwork(context.Background(),
-		&rpc.AddPodNetworkRequest{
-			PodName:      podName,
-			PodNamespace: podNS,
-			SandboxID:    sandboxID,
-			Netns:        netNS,
-		})
+func allocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, uni *vpc.NetworkInterface, podName, podNS, netNS, sandboxID string) (*rpc.PodNetwork, error) {
+	req := &rpc.AddPodNetworkRequest{
+		PodName:      podName,
+		PodNamespace: podNS,
+		SandboxID:    sandboxID,
+		Netns:        netNS,
+	}
+	if uni != nil {
+		req.SubnetID = uni.SubnetId
+		req.InterfaceID = uni.InterfaceId
+		req.MacAddress = uni.MacAddress
+	}
+
+	r, err := c.AddPodNetwork(context.Background(), req)
 
 	if err != nil {
 		ulog.Errorf("Error received from AddPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, sandboxID, err)
@@ -649,9 +658,9 @@ func allocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, netNS, sa
 	return r.GetPodNetwork(), nil
 }
 
-func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, podInfraContainerID string, pNet *rpc.PodNetwork) error {
+func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, podInfraContainerID string, pn *rpc.PodNetwork) error {
 	delRPC := &rpc.DelPodNetworkRequest{
-		PodNetwork: pNet,
+		PodNetwork: pn,
 	}
 	r, err := c.DelPodNetwork(context.Background(), delRPC)
 
@@ -671,34 +680,35 @@ func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, podInfr
 
 // If there is ipamd daemon service, use ipamd to add PodNetworkRecord;
 // if not, do this on myself.
-func addPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+func addPodNetworkRecord(podName, podNS, sandBoxID string, pn *rpc.PodNetwork) error {
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return addPodNetworkRecordLocal(podName, podNS, sandBoxID, pNet)
+		return addPodNetworkRecordLocal(podName, podNS, sandBoxID, pn)
 	}
 	defer conn.Close()
 	c := rpc.NewCNIIpamClient(conn)
 	if enabledIpamd(c) {
-		return addPodNetworkRecordFromIpamd(c, podName, podNS, sandBoxID, pNet)
+		return addPodNetworkRecordFromIpamd(c, podName, podNS, sandBoxID, pn)
 	} else {
-		return addPodNetworkRecordLocal(podName, podNS, sandBoxID, pNet)
+		return addPodNetworkRecordLocal(podName, podNS, sandBoxID, pn)
 	}
 }
 
-func addPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
+func addPodNetworkRecordLocal(podName, podNS, sandBoxID string, pn *rpc.PodNetwork) error {
 	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
-		releasePodIp(podName, podNS, sandBoxID, pNet)
+		releasePodIp(podName, podNS, sandBoxID, pn)
 		return err
 	}
 	defer db.Close()
-	return db.Put(database.PodKey(podName, podNS, sandBoxID), pNet)
+	return db.Put(database.PodKey(podName, podNS, sandBoxID), pn)
 }
 
-func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
+func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID string, pn *rpc.PodNetwork) error {
 	r, err := c.AddPodNetworkRecord(context.Background(),
 		&rpc.AddPodNetworkRecordRequest{
-			PodNetwork: pNet,
+			PodNetwork: pn,
 		})
 
 	if err != nil {
@@ -716,24 +726,22 @@ func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 
 // If there is ipamd daemon service, use ipamd to delete NetworkRecord;
 // if not, do this on myself.
-func delPodNetworkRecord(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+func delPodNetworkRecord(podName, podNS, sandBoxID string) error {
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return delPodNetworkRecordLocal(podName, podNS, sandBoxID, pNet)
+		return delPodNetworkRecordLocal(podName, podNS, sandBoxID)
 	}
 	defer conn.Close()
 	c := rpc.NewCNIIpamClient(conn)
 	if enabledIpamd(c) {
 		return delPodNetworkRecordFromIpamd(c, podName, podNS, sandBoxID)
 	} else {
-		return delPodNetworkRecordLocal(podName, podNS, sandBoxID, pNet)
+		return delPodNetworkRecordLocal(podName, podNS, sandBoxID)
 	}
 }
 
-func delPodNetworkRecordLocal(podName, podNS, sandBoxID string, pNet *rpc.PodNetwork) error {
-	if pNet.DedicatedUNI {
-		return nil
-	}
+func delPodNetworkRecordLocal(podName, podNS, sandBoxID string) error {
 	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
 	if err != nil {
 		return err
@@ -766,7 +774,8 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 // If there is ipamd daemon service, use ipamd to get PodNetworkRecord;
 // if not, do this on myself.
 func getPodNetworkRecord(podName, podNS, sandBoxID string) (*rpc.PodNetwork, error) {
-	conn, err := grpc.Dial(IpamdServiceSocket, grpc.WithInsecure())
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return getPodNetworkRecordLocal(podName, podNS, sandBoxID)
 	}

@@ -40,7 +40,7 @@ const (
 	defaultMtu     = 1452
 )
 
-var IPConflictError = errors.New("allocated IP is conflict with existing IP")
+var ErrIPConflict = errors.New("allocated IP is conflict with existing IP")
 
 type netlinkInterface interface {
 	LinkByName(name string) (netlink.Link, error)
@@ -87,29 +87,13 @@ func addRouteRuleForPodIp(hostVeth, ip string) error {
 		ulog.Infof("The route %q already exists, skip adding it", dstcidr.IP)
 
 	case err != nil:
-		return fmt.Errorf("Add route %q error: %v", dstcidr.IP, err)
+		return fmt.Errorf("add route %q error: %v", dstcidr.IP, err)
 
 	default:
 	}
 
 	if err = ensureDstIPRoutePolicy(ip); err != nil {
 		return err
-	}
-	return nil
-}
-
-func enableForwarding(ipv4 bool, ipv6 bool) error {
-	if ipv4 {
-		err := ip.EnableIP4Forward()
-		if err != nil {
-			return fmt.Errorf("Could not enable IPv4 forwarding: %v", err)
-		}
-	}
-	if ipv6 {
-		err := ip.EnableIP6Forward()
-		if err != nil {
-			return fmt.Errorf("Could not enable IPv6 forwarding: %v", err)
-		}
 	}
 	return nil
 }
@@ -122,11 +106,11 @@ func ensureProxyArp(dev string) error {
 		return err
 	}
 	f, err := os.OpenFile(proxyArpCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	defer f.Close()
 	if err != nil {
 		ulog.Errorf("Open file %s error: %v", proxyArpCnfFile, err)
 		return err
 	}
+	defer f.Close()
 	io.WriteString(f, "1")
 	return nil
 }
@@ -139,46 +123,46 @@ var newIPTable = func(protocol iptables.Protocol) (iptable, error) {
 	return iptables.NewWithProtocol(protocol)
 }
 
-func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc.PodNetwork) error {
+func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pn *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
 		ulog.Errorf("Open netns %q error: %v", netNS, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
-		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
+		releasePodIp(podName, podNS, sandBoxId, pn)
+		return fmt.Errorf("failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()
 	mface, err := netlink.LinkByName(nic)
 	if err != nil {
 		ulog.Errorf("Lookup %s error: %v", nic, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
+		releasePodIp(podName, podNS, sandBoxId, pn)
 		return fmt.Errorf("failed to lookup %s: %v", nic, err)
 	}
 
 	hostAddrs, err := netlink.AddrList(mface, netlink.FAMILY_V4)
 	if err != nil || len(hostAddrs) == 0 {
 		ulog.Errorf("Get host ip addresses for %q error: %v", mface, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
-		return fmt.Errorf("Failed to get host ip addresses for %q: %v", mface, err)
+		releasePodIp(podName, podNS, sandBoxId, pn)
+		return fmt.Errorf("failed to get host ip addresses for %q: %v", mface, err)
 	}
 	hostVeth, _, err := setupVethPair(netns, os.Getenv("CNI_IFNAME"),
 		generateHostVethName(hostVethPrefix, podNS, podName),
 		defaultMtu, hostAddrs,
-		pNet.VPCIP+"/32")
+		pn.VPCIP+"/32")
 	if err != nil {
 		ulog.Errorf("Setup vethpair between host and container error: %v", err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
+		releasePodIp(podName, podNS, sandBoxId, pn)
 		return err
 	}
 
 	// Add a route rule in host when accessing pod ip go to veth
-	err = addRouteRuleForPodIp(hostVeth.Name, pNet.VPCIP)
+	err = addRouteRuleForPodIp(hostVeth.Name, pn.VPCIP)
 	if err != nil {
-		ulog.Errorf("Add route rule for ip %v error: %v", pNet.VPCIP, err)
+		ulog.Errorf("Add route rule for ip %v error: %v", pn.VPCIP, err)
 
 		// When adding a route fails, for the convenience of debugging, we use
 		// snapshot to save some output of the ip command.
 		// The snapshot will be saved to /opt/cni/snapshot/ip_route_{vpcip}
-		snapshot := snapshot.New(fmt.Sprintf("ip_route_%s", pNet.VPCIP))
+		snapshot := snapshot.New(fmt.Sprintf("ip_route_%s", pn.VPCIP))
 		snapshot.SetDesc(fmt.Sprintf("Adding route rule failure, veth name: %s", hostVeth.Name))
 		snapshot.SetError(err)
 		snapshot.Add("ip", "addr")
@@ -190,9 +174,9 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pNet *rpc
 		return err
 	}
 
-	if !pNet.DedicatedUNI && nic != iputils.UHostMasterInterface && strings.HasPrefix(pNet.InterfaceID, "uni-") {
-		if err = ensureSrcIPRoutePolicy(pNet.VPCIP, nic); err != nil {
-			ulog.Errorf("Add ip rule for %s secondary ip %v error: %v", pNet.InterfaceID, pNet.VPCIP, err)
+	if nic != iputils.UHostMasterInterface && strings.HasPrefix(pn.InterfaceID, "uni-") {
+		if err = ensureSrcIPRoutePolicy(pn.VPCIP, nic); err != nil {
+			ulog.Errorf("Add ip rule for %s secondary ip %v error: %v", pn.InterfaceID, pn.VPCIP, err)
 		}
 		return err
 	}
@@ -235,7 +219,7 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 
 		contVeth, err := net.InterfaceByName(ifName)
 		if err != nil {
-			return fmt.Errorf("Failed to look up %q: %v", ifName, err)
+			return fmt.Errorf("failed to look up %q: %v", ifName, err)
 		}
 
 		// Add a default gateway pointed at the eth0
@@ -248,7 +232,7 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 			Flags:     int(netlink.FLAG_ONLINK),
 		})
 		if err != nil {
-			return fmt.Errorf("Failed to add default route on eth0:%v", err)
+			return fmt.Errorf("failed to add default route on eth0:%v", err)
 		}
 		// Add a static arp entry, avoiding initial proxy arp request
 		// ip neigh add $UHostIP lladdr $vethMac(uhost'ns side) dev eth0
@@ -261,7 +245,7 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("Failed to add a neigh entry for veth of uhost's ns: %v", err)
+			return fmt.Errorf("failed to add a neigh entry for veth of uhost's ns: %v", err)
 		}
 		return nil
 	})
@@ -272,26 +256,11 @@ func setupVethPair(netns ns.NetNS, ifName, hostVethName string, mtu int, hostAdd
 	return hostInterface, containerInterface, nil
 }
 
-func delHostSideVeth(podNS, podName string) error {
-	vethName := generateHostVethName(hostVethPrefix, podNS, podName)
-	link, err := netlink.LinkByName(vethName)
-	if err != nil {
-		return nil
-	}
-	err = netlink.LinkDel(link)
-	if err != nil {
-		ulog.Warnf("Delete hostside veth %s for pod %s/%s error: %v", vethName, podNS, podName, err)
-		return err
-	}
-	ulog.Infof("Finished deleting hostside veth %s for pod %s/%s", vethName, podNS, podName)
-	return nil
-}
-
 func generateHostVethName(prefix, namespace, podname string) string {
 	// A SHA1 is always 20 bytes long, and so is sufficient for generating the
 	// veth name and mac addr.
 	h := sha1.New()
-	h.Write([]byte(fmt.Sprintf("%s.%s", namespace, podname)))
+	fmt.Fprintf(h, "%s.%s", namespace, podname)
 	return fmt.Sprintf("%s%s", prefix, hex.EncodeToString(h.Sum(nil))[:11])
 }
 

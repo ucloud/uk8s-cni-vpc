@@ -23,12 +23,12 @@ import (
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 )
 
-func setNodePortRange(podName, podNS, netNS, sandBoxId string, pNet *rpc.PodNetwork) error {
+func setNodePortRange(podName, podNS, netNS, sandBoxId string, pn *rpc.PodNetwork) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
 		ulog.Errorf("Open netns %q error: %v", netNS, err)
-		releasePodIp(podName, podNS, sandBoxId, pNet)
-		return fmt.Errorf("Failed to open netns %q: %v", netNS, err)
+		releasePodIp(podName, podNS, sandBoxId, pn)
+		return fmt.Errorf("failed to open netns %q: %v", netNS, err)
 	}
 	defer netns.Close()
 

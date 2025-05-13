@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -37,19 +36,6 @@ const (
 	KubeNodeLabelUhostID    = "UhostID"
 	KubeNodeZoneKey         = "failure-domain.beta.kubernetes.io/zone"
 	KubeNodeZoneTopologyKey = "topology.kubernetes.io/zone"
-	KubeNodeInstanceTypeKey = "node.uk8s.ucloud.cn/instance_type"
-	KubeNodeMachineTypeKey  = "node.uk8s.ucloud.cn/machine_type"
-
-	AnnotationPodNeedEIP       = "network.kubernetes.io/eip"
-	AnnotationEIPID            = "network.kubernetes.io/eip-id"
-	AnnotationEIPAddr          = "network.kubernetes.io/eip-addr"
-	AnnotationUNIID            = "network.kubernetes.io/uni-id"
-	AnnotationEIPPayMode       = "network.kubernetes.io/eip-paymode"
-	AnnotationEIPBandwidth     = "network.kubernetes.io/eip-bandwidth"
-	AnnotationEIPChargeType    = "network.kubernetes.io/eip-chargetype"
-	AnnotationEIPQuantity      = "network.kubernetes.io/eip-quantity"
-	AnnotationSecurityGroupId  = "network.kubernetes.io/security-group-id"
-	AnnotationShareBandwidthId = "network.kubernetes.io/sharebandwidth-id"
 
 	AnnotationPodNetworkingName    = "network.kubernetes.io/ucloud-pod-networking-name"
 	AnnotationPodNetworkingDisable = "network.kubernetes.io/ucloud-pod-networking-disable"
@@ -117,7 +103,7 @@ func (s *ipamServer) getKubeNodeLabel(nodeName, key string) (string, error) {
 		return "", err
 	}
 
-	if val, found := node.ObjectMeta.Labels[key]; found {
+	if val, found := node.Labels[key]; found {
 		ulog.Infof("Get key %v from node labels for node %v, value: %v", key, nodeName, val)
 		return val, nil
 	}
@@ -141,41 +127,6 @@ func (s *ipamServer) getPod(podName, podNS string) (*v1.Pod, error) {
 		return nil, err
 	}
 	return pod, nil
-}
-
-func (s *ipamServer) podNeedDedicatedUNI(pod *v1.Pod) (bool, *EIPCfg) {
-	if val, found := pod.Annotations[AnnotationPodNeedEIP]; found {
-		if strings.ToLower(val) == "true" {
-			cfg := &EIPCfg{
-				PayMode:          pod.Annotations[AnnotationEIPPayMode],
-				ChargeType:       pod.Annotations[AnnotationEIPChargeType],
-				ShareBandwidthId: pod.Annotations[AnnotationShareBandwidthId],
-				SecurityGroupId:  pod.Annotations[AnnotationSecurityGroupId],
-				Bandwidth:        2,
-				Quantity:         1,
-			}
-			if len(pod.Annotations[AnnotationEIPBandwidth]) > 0 {
-				if bandwidth, err := strconv.Atoi(pod.Annotations[AnnotationEIPBandwidth]); err == nil && bandwidth > 0 {
-					cfg.Bandwidth = bandwidth
-				} else {
-					ulog.Warnf("Cannot not parse annotation %s, %v", AnnotationEIPBandwidth, err)
-				}
-			}
-			if len(pod.Annotations[AnnotationEIPQuantity]) > 0 {
-				if quantity, err := strconv.Atoi(pod.Annotations[AnnotationEIPQuantity]); err == nil && quantity > 0 {
-					cfg.Quantity = quantity
-				} else {
-					ulog.Warnf("Cannot not parse annotation %s, %v", AnnotationEIPQuantity, err)
-				}
-			}
-			if len(pod.Annotations[AnnotationEIPID]) > 0 {
-				cfg.EIPId = pod.Annotations[AnnotationEIPID]
-			}
-
-			return true, cfg
-		}
-	}
-	return false, nil
 }
 
 // 参数calicoPolicyFlag设置为true则在申请到ip以后更新到annotation

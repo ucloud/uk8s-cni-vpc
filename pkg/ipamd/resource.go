@@ -68,12 +68,9 @@ func startDevicePlugin() error {
 // Check any remaining resources(UNI, EIP) that shouldn't exist any more, delete or release them in case of any leakage.
 func (s *ipamServer) reconcile() {
 	ulog.Infof("Start reconcile loop")
-	tk := time.Tick(3 * time.Minute)
-	for {
-		select {
-		case <-tk:
-			s.doReconcile()
-		}
+	tk := time.NewTicker(3 * time.Minute)
+	for range tk.C {
+		s.doReconcile()
 	}
 }
 
@@ -93,16 +90,16 @@ func (s *ipamServer) doReconcile() {
 
 	orphans := make([]*database.KeyValue[rpc.PodNetwork], 0)
 	for _, kv := range kvs {
-		pNet := kv.Value
+		pn := kv.Value
 		for idx, p := range folks.Items {
-			if p.Name == pNet.PodName && p.Namespace == pNet.PodNS {
-				if string(p.UID) == pNet.PodUID {
+			if p.Name == pn.PodName && p.Namespace == pn.PodNS {
+				if string(p.UID) == pn.PodUID {
 					break
 				}
-				if len(pNet.PodUID) == 0 {
-					ulog.Infof("Complete PodUID field for record %+v", pNet)
-					pNet.PodUID = string(p.UID)
-					s.networkDB.Put(kv.Key, pNet)
+				if len(pn.PodUID) == 0 {
+					ulog.Infof("Complete PodUID field for record %+v", pn)
+					pn.PodUID = string(p.UID)
+					s.networkDB.Put(kv.Key, pn)
 					break
 				}
 			}
@@ -114,19 +111,11 @@ func (s *ipamServer) doReconcile() {
 
 	// Do garbage clean
 	for _, kv := range orphans {
-		pNet := kv.Value
-		if pNet.DedicatedUNI && len(pNet.InterfaceID) > 0 {
-			ulog.Infof("Start garbage clean for %s/%s, UID:%s, UNI:%s", pNet.PodName, pNet.PodNS, pNet.PodUID, pNet.InterfaceID)
-			err = s.releaseUNI(pNet.PodUID, pNet.InterfaceID)
-			if err != nil {
-				ulog.Errorf("Do garbage clean for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
-			}
-		}
-		ulog.Infof("Delete local storage for orphan pod: %+v", pNet)
+		pn := kv.Value
+		ulog.Infof("Delete local storage for orphan pod: %+v", pn)
 		err = s.networkDB.Delete(kv.Key)
 		if err != nil {
-			ulog.Errorf("Delete local network storage for %s/%s error: %v", pNet.PodName, pNet.PodNS, err)
+			ulog.Errorf("Delete local network storage for %s/%s error: %v", pn.PodName, pn.PodNS, err)
 		}
 	}
-	return
 }

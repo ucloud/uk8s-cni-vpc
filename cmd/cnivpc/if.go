@@ -135,7 +135,7 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 
 	routes, err := netlink.RouteList(link, netlink.FAMILY_V4)
 	if err != nil {
-		return fmt.Errorf("List ip routes error: %v", err)
+		return fmt.Errorf("list ip routes error: %v", err)
 	}
 	// uni primary ip route setup is ok
 	for _, route := range routes {
@@ -291,11 +291,11 @@ func ensureRPFilterOff() error {
 		return err
 	}
 	f, err := os.OpenFile(rpFilterCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	defer f.Close()
 	if err != nil {
 		ulog.Errorf("Open file %s error: %v", rpFilterCnfFile, err)
 		return err
 	}
+	defer f.Close()
 	io.WriteString(f, "0")
 	return nil
 }
