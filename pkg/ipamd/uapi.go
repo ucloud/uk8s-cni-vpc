@@ -243,7 +243,7 @@ func (s *ipamServer) uapiDeleteSecondaryIp(pn *rpc.PodNetwork) error {
 	req.Ip = ucloud.String(pn.VPCIP)
 	req.ObjectId = ucloud.String(objectID)
 	req.VPCId = ucloud.String(s.uapi.VPCID())
-	req.SubnetId = ucloud.String(s.uapi.SubnetID())
+	req.SubnetId = ucloud.String(pn.SubnetID)
 
 	resp, err := cli.DeleteSecondaryIp(req)
 	if err == nil {
