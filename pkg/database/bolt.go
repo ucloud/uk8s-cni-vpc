@@ -38,7 +38,7 @@ func NewBolt[T any](bucket string, db *bolt.DB) (Database[T], error) {
 		return err
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Boltdb create bucket %q error: %v", bucket, err)
+		return nil, fmt.Errorf("boltdb create bucket %q error: %v", bucket, err)
 	}
 	return &Bolt[T]{
 		db:     db,
@@ -49,7 +49,7 @@ func NewBolt[T any](bucket string, db *bolt.DB) (Database[T], error) {
 func (b *Bolt[T]) Put(key string, value *T) error {
 	data, err := json.Marshal(value)
 	if err != nil {
-		return fmt.Errorf("Marshal boltdb value error: %v", err)
+		return fmt.Errorf("marshal boltdb value error: %v", err)
 	}
 
 	err = b.db.Update(func(tx *bolt.Tx) error {
@@ -57,7 +57,7 @@ func (b *Bolt[T]) Put(key string, value *T) error {
 		return bucket.Put([]byte(key), data)
 	})
 	if err != nil {
-		return fmt.Errorf("Write boltdb error: %v", err)
+		return fmt.Errorf("write boltdb error: %v", err)
 	}
 
 	return nil
@@ -71,7 +71,7 @@ func (b *Bolt[T]) Get(key string) (*T, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Read boltdb error: %v", err)
+		return nil, fmt.Errorf("read boltdb error: %v", err)
 	}
 	if len(data) == 0 {
 		return nil, ErrNotFound
@@ -88,7 +88,7 @@ func (b *Bolt[T]) Count() (int, error) {
 		return nil
 	})
 	if err != nil {
-		return 0, fmt.Errorf("Read boltdb length error: %v", err)
+		return 0, fmt.Errorf("read boltdb length error: %v", err)
 	}
 	return length, nil
 }
@@ -114,11 +114,11 @@ func (b *Bolt[T]) Pop() (*KeyValue[T], error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Read boltdb error: %v", err)
+		return nil, fmt.Errorf("read boltdb error: %v", err)
 	}
 
 	if len(key) == 0 {
-		return nil, EOF
+		return nil, ErrEOF
 	}
 
 	value, err := b.decodeValue(data)
@@ -129,7 +129,7 @@ func (b *Bolt[T]) Pop() (*KeyValue[T], error) {
 	kv := &KeyValue[T]{Key: string(key), Value: value}
 	err = b.Delete(kv.Key)
 	if err != nil {
-		return nil, fmt.Errorf("Delete kv after pop error: %v", err)
+		return nil, fmt.Errorf("delete kv after pop error: %v", err)
 	}
 
 	return kv, nil
@@ -160,7 +160,7 @@ func (b *Bolt[T]) decodeValue(data []byte) (*T, error) {
 	var value T
 	err := json.Unmarshal(data, &value)
 	if err != nil {
-		return nil, fmt.Errorf("Decode boltdb value error: %v", err)
+		return nil, fmt.Errorf("decode boltdb value error: %v", err)
 	}
 	return &value, nil
 }

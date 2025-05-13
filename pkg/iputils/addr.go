@@ -69,7 +69,7 @@ func GetLinkByMac(mac string) (netlink.Link, error) {
 	}
 
 	for _, link := range links {
-		if strings.ToLower(link.Attrs().HardwareAddr.String()) == strings.ToLower(mac) {
+		if strings.EqualFold(link.Attrs().HardwareAddr.String(), mac) {
 			return link, nil
 		}
 	}

@@ -101,7 +101,7 @@ func CmdCheck(args *skel.CmdArgs, conf *config.Plugin) error {
 
 	// Ensure we have previous result.
 	if result == nil {
-		return fmt.Errorf("Required prevResult missing")
+		return fmt.Errorf("required prevResult missing")
 	}
 
 	if len(conf.RuntimeConfig.PortMaps) == 0 {
@@ -143,7 +143,7 @@ func parseConfig(conf *config.Plugin, ifName string) (*config.Plugin, *current.R
 	}
 
 	if conf.MarkMasqBit != nil && conf.ExternalSetMarkChain != nil {
-		return nil, nil, fmt.Errorf("Cannot specify externalSetMarkChain and markMasqBit")
+		return nil, nil, fmt.Errorf("cannot specify externalSetMarkChain and markMasqBit")
 	}
 
 	if conf.MarkMasqBit == nil {
@@ -158,10 +158,10 @@ func parseConfig(conf *config.Plugin, ifName string) (*config.Plugin, *current.R
 	// Reject invalid port numbers
 	for _, pm := range conf.RuntimeConfig.PortMaps {
 		if pm.ContainerPort <= 0 {
-			return nil, nil, fmt.Errorf("Invalid container port number: %d", pm.ContainerPort)
+			return nil, nil, fmt.Errorf("invalid container port number: %d", pm.ContainerPort)
 		}
 		if pm.HostPort <= 0 {
-			return nil, nil, fmt.Errorf("Invalid host port number: %d", pm.HostPort)
+			return nil, nil, fmt.Errorf("invalid host port number: %d", pm.HostPort)
 		}
 	}
 
