@@ -15,6 +15,7 @@ package ipamd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"k8s.io/apimachinery/pkg/fields"
@@ -67,20 +69,23 @@ type EIPCfg struct {
 
 func (s *ipamServer) setPodAnnotation(pod *v1.Pod, pairs map[string]string) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		pod, localErr := s.kubeClient.CoreV1().Pods(pod.Namespace).Get(context.TODO(), pod.Name, metav1.GetOptions{})
+		patch := map[string]any{
+			"metadata": map[string]any{
+				"annotations": pairs,
+			},
+		}
+
+		patchBytes, localErr := json.Marshal(patch)
 		if localErr != nil {
-			return localErr
+			return fmt.Errorf("failed to marshal patch: %v", localErr)
 		}
-		annotations := pod.Annotations
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		for k, v := range pairs {
-			annotations[k] = v
-		}
-		// This action may overwrite previous pairs
-		pod.Annotations = annotations
-		_, localErr = s.kubeClient.CoreV1().Pods(pod.Namespace).Update(context.TODO(), pod, metav1.UpdateOptions{})
+
+		_, localErr = s.kubeClient.CoreV1().Pods(pod.Namespace).Patch(
+			context.Background(),
+			pod.Name,
+			types.MergePatchType,
+			patchBytes,
+			metav1.PatchOptions{})
 		return localErr
 	})
 	if err != nil {

@@ -93,6 +93,8 @@ func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRe
 		//获取到该信息之后同时把ip信息写入到annotation
 		err = s.setAnnotationForCalicoPolicy(p, resp.PodNetwork)
 		if err != nil {
+			// 写入annotation失败要回收IP，不然会导致IP泄漏
+			s.backupReleaseSecondaryIP(resp.PodNetwork.VPCIP)
 			ulog.Errorf("SetAnnotationForCalicoPolicy %s, %s, %s error: %v",
 				req.GetPodName(), req.GetPodNamespace(), req.GetSandboxID(), resp.Err)
 			return &rpc.AddPodNetworkResponse{
