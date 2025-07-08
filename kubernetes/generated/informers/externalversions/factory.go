@@ -23,6 +23,7 @@ import (
 	versioned "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	internalinterfaces "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/internalinterfaces"
 	ipamd "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/ipamd"
+	podnetworking "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/podnetworking"
 	vipcontroller "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/informers/externalversions/vipcontroller"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -171,11 +172,16 @@ type SharedInformerFactory interface {
 	WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
 
 	Ipamd() ipamd.Interface
+	Podnetworking() podnetworking.Interface
 	Vipcontroller() vipcontroller.Interface
 }
 
 func (f *sharedInformerFactory) Ipamd() ipamd.Interface {
 	return ipamd.New(f, f.namespace, f.tweakListOptions)
+}
+
+func (f *sharedInformerFactory) Podnetworking() podnetworking.Interface {
+	return podnetworking.New(f, f.namespace, f.tweakListOptions)
 }
 
 func (f *sharedInformerFactory) Vipcontroller() vipcontroller.Interface {

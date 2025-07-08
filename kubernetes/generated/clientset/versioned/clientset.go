@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/ipamd/v1beta1"
+	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/podnetworking/v1beta1"
 	vipcontrollerv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/vipcontroller/v1beta1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
@@ -28,6 +29,7 @@ import (
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
 	IpamdV1beta1() ipamdv1beta1.IpamdV1beta1Interface
+	PodnetworkingV1beta1() podnetworkingv1beta1.PodnetworkingV1beta1Interface
 	VipcontrollerV1beta1() vipcontrollerv1beta1.VipcontrollerV1beta1Interface
 }
 
@@ -36,12 +38,18 @@ type Interface interface {
 type Clientset struct {
 	*discovery.DiscoveryClient
 	ipamdV1beta1         *ipamdv1beta1.IpamdV1beta1Client
+	podnetworkingV1beta1 *podnetworkingv1beta1.PodnetworkingV1beta1Client
 	vipcontrollerV1beta1 *vipcontrollerv1beta1.VipcontrollerV1beta1Client
 }
 
 // IpamdV1beta1 retrieves the IpamdV1beta1Client
 func (c *Clientset) IpamdV1beta1() ipamdv1beta1.IpamdV1beta1Interface {
 	return c.ipamdV1beta1
+}
+
+// PodnetworkingV1beta1 retrieves the PodnetworkingV1beta1Client
+func (c *Clientset) PodnetworkingV1beta1() podnetworkingv1beta1.PodnetworkingV1beta1Interface {
+	return c.podnetworkingV1beta1
 }
 
 // VipcontrollerV1beta1 retrieves the VipcontrollerV1beta1Client
@@ -74,6 +82,10 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 	if err != nil {
 		return nil, err
 	}
+	cs.podnetworkingV1beta1, err = podnetworkingv1beta1.NewForConfig(&configShallowCopy)
+	if err != nil {
+		return nil, err
+	}
 	cs.vipcontrollerV1beta1, err = vipcontrollerv1beta1.NewForConfig(&configShallowCopy)
 	if err != nil {
 		return nil, err
@@ -91,6 +103,7 @@ func NewForConfig(c *rest.Config) (*Clientset, error) {
 func NewForConfigOrDie(c *rest.Config) *Clientset {
 	var cs Clientset
 	cs.ipamdV1beta1 = ipamdv1beta1.NewForConfigOrDie(c)
+	cs.podnetworkingV1beta1 = podnetworkingv1beta1.NewForConfigOrDie(c)
 	cs.vipcontrollerV1beta1 = vipcontrollerv1beta1.NewForConfigOrDie(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClientForConfigOrDie(c)
@@ -101,6 +114,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
 	cs.ipamdV1beta1 = ipamdv1beta1.New(c)
+	cs.podnetworkingV1beta1 = podnetworkingv1beta1.New(c)
 	cs.vipcontrollerV1beta1 = vipcontrollerv1beta1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)

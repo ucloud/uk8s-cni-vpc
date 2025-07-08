@@ -107,3 +107,23 @@ func GetNodeClient() (*kubernetes.Clientset, error) {
 
 	return nil, errors.New("no available kubeconfig in node")
 }
+
+func GetNodeCRDClient() (*crdclientset.Clientset, error) {
+	for _, path := range nodeKubeConfigPaths {
+		_, err := os.Stat(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		cfg, err := clientcmd.BuildConfigFromFlags("", path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read kube config: %v", err)
+		}
+		return crdclientset.NewForConfig(cfg)
+	}
+
+	return nil, errors.New("no available kubeconfig in node")
+}

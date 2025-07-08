@@ -4,22 +4,17 @@ package rpc;
 option go_package = "./;rpc";
 
 service CNIIpam {
-	rpc Ping (PingRequest) returns (PingResponse) {}
-	rpc AddPodNetwork (AddPodNetworkRequest) returns (AddPodNetworkResponse) {}
-	rpc DelPodNetwork (DelPodNetworkRequest) returns (DelPodNetworkResponse) {}
-	rpc AddPodNetworkRecord (AddPodNetworkRecordRequest) returns (AddPodNetworkRecordResponse) {}
-	rpc DelPodNetworkRecord (DelPodNetworkRecordRequest) returns (DelPodNetworkRecordResponse) {}
-	rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
-	rpc ListPodNetworkRecord (ListPodNetworkRecordRequest) returns (ListPodNetworkRecordResponse) {}
+  rpc Ping (PingRequest) returns (PingResponse) {}
+  rpc AddPodNetwork (AddPodNetworkRequest) returns (AddPodNetworkResponse) {}
+  rpc DelPodNetwork (DelPodNetworkRequest) returns (DelPodNetworkResponse) {}
+  rpc AddPodNetworkRecord (AddPodNetworkRecordRequest) returns (AddPodNetworkRecordResponse) {}
+  rpc DelPodNetworkRecord (DelPodNetworkRecordRequest) returns (DelPodNetworkRecordResponse) {}
+  rpc GetPodNetworkRecord (GetPodNetworkRecordRequest) returns (GetPodNetworkRecordResponse) {}
+  rpc ListPodNetworkRecord (ListPodNetworkRecordRequest) returns (ListPodNetworkRecordResponse) {}
 
-	rpc BorrowIP (BorrowIPRequest) returns (BorrowIPResponse) {}
+  rpc BorrowIP (BorrowIPRequest) returns (BorrowIPResponse) {}
 
-	rpc DescribePool (DescribePoolRequest) returns (DescribePoolResponse) {}
-	rpc PushPool (PushPoolRequest) returns (PushPoolResponse) {}
-	rpc PopPool (PopPoolRequest) returns (PopPoolResponse) {}
-
-	rpc ListUnuse (ListUnuseRequest) returns (ListUnuseResponse) {}
-	rpc ReleaseIP (ReleaseIPRequest) returns (ReleaseIPResponse) {}
+  rpc SupportMultiSubnet (SupportMultiSubnetRequest) returns (SupportMultiSubnetResponse) {}
 }
 
 message PingRequest {}
@@ -27,159 +22,127 @@ message PingRequest {}
 message PingResponse {}
 
 message AddPodNetworkRequest {
-	string PodName = 1;
-	string PodNamespace = 2;
-	string SandboxID = 3;
-	string Netns = 4;
-	string IfName = 5;
+  string PodName = 1;
+  string PodNamespace = 2;
+  string SandboxID = 3;
+  string Netns = 4;
+  string IfName = 5;
+  string SubnetID = 6;
+  string MacAddress = 7;
+  string InterfaceID = 8;
 }
 
-
 message AddPodNetworkResponse{
-	CNIErrorCode Code = 1;
-	PodNetwork PodNetwork =2;
+  CNIErrorCode Code = 1;
+  PodNetwork PodNetwork = 2;
 }
 
 message DelPodNetworkRequest {
-	PodNetwork PodNetwork = 1;
+  PodNetwork PodNetwork = 1;
 }
 
 message DelPodNetworkResponse {
-	CNIErrorCode Code = 1;
+  CNIErrorCode Code = 1;
 }
 
 message AddPodNetworkRecordRequest {
-	PodNetwork PodNetwork = 1;
+  PodNetwork PodNetwork = 1;
 }
 
 message AddPodNetworkRecordResponse {
-	CNIErrorCode Code = 1;
+  CNIErrorCode Code = 1;
 }
 
 message DelPodNetworkRecordRequest {
-	string PodName = 1;
-	string PodNS = 2;
-	string SandboxID = 3;
+  string PodName = 1;
+  string PodNS = 2;
+  string SandboxID = 3;
 }
 
 message DelPodNetworkRecordResponse {
-	CNIErrorCode Code = 1;
+  CNIErrorCode Code = 1;
 }
 
 message GetPodNetworkRecordRequest {
-	string PodName = 1;
-	string PodNS = 2;
-	string SandboxID = 3;
+  string PodName = 1;
+  string PodNS = 2;
+  string SandboxID = 3;
 }
 
 message GetPodNetworkRecordResponse {
-	CNIErrorCode Code = 1;
-	PodNetwork PodNetwork = 2;
+  CNIErrorCode Code = 1;
+  PodNetwork PodNetwork = 2;
 }
 
 message ListPodNetworkRecordRequest {}
 
 message ListPodNetworkRecordResponse {
-	CNIErrorCode Code = 1;
-	repeated PodNetwork Networks = 2;
+  CNIErrorCode Code = 1;
+  repeated PodNetwork Networks = 2;
 }
 
 message PodNetwork {
-	string PodName = 1;
-	string PodNS = 2;
-	string PodUID = 3;
-	string SandboxID = 4;
-	string NetNS = 5;
-	string VPCIP = 6;
-	string VPCID = 7;
-	string SubnetID = 8;
-	string Gateway = 9;
-	string Mask = 10;
-	string MacAddress = 11;
-	bool DedicatedUNI = 12;
-	string InterfaceID = 13;
-	string EIPID = 14;
-	int64 CreateTime = 15;
-	int64 RecycleTime = 16;
-	bool Recycled = 17;
+  string PodName = 1;
+  string PodNS = 2;
+  string PodUID = 3;
+  string SandboxID = 4;
+  string NetNS = 5;
+  string VPCIP = 6;
+  string VPCID = 7;
+  string SubnetID = 8;
+  string Gateway = 9;
+  string Mask = 10;
+  string MacAddress = 11;
+  // Deprecated: Pod now does not support bind EIP
+  bool DedicatedUNI = 12;
+  string InterfaceID = 13;
+  string EIPID = 14;
+  int64 CreateTime = 15;
+  int64 RecycleTime = 16;
+  bool Recycled = 17;
 }
 
 message BorrowIPRequest {
-	string MacAddr = 1;
+  string MacAddress = 1;
+  string SubnetID = 2;
 }
 
 message BorrowIPResponse {
-	CNIErrorCode Code = 1;
-	PodNetwork IP = 2;
+  CNIErrorCode Code = 1;
+  PodNetwork IP = 2;
 }
 
-message DescribePoolRequest {}
+message SupportMultiSubnetRequest {}
 
-message DescribePoolResponse {
-	CNIErrorCode Code = 1;
-
-	repeated PodNetwork Pool = 2;
-	repeated PodNetwork Cooldown = 3;
-}
-
-message PushPoolRequest {
-	string IP = 1;
-}
-
-message PushPoolResponse {
-	CNIErrorCode Code = 1;
-	PodNetwork IP = 2;
-}
-
-message PopPoolRequest {
-	string IP = 1;
-}
-
-message PopPoolResponse {
-	CNIErrorCode Code = 1;
-	PodNetwork IP = 2;
-}
-
-message ListUnuseRequest {}
-
-message ListUnuseResponse {
-	CNIErrorCode Code = 1;
-
-	repeated PodNetwork Unuse = 2;
-}
-
-message ReleaseIPRequest {
-	repeated string IP = 1;
-}
-
-message ReleaseIPResponse {
-	CNIErrorCode Code = 1;
+message SupportMultiSubnetResponse {
+  CNIErrorCode Code = 1;
+  bool Support = 2;
 }
 
 enum CNIErrorCode {
-	CNISuccess = 0;
+  CNISuccess = 0;
 
-	CNIMissingParameters = 1001;
+  CNIMissingParameters = 1001;
 
-	CNIAllocateSecondaryIPFailure = 1002;
-	CNIReleaseSecondaryIPFailure = 1003;
+  CNIAllocateSecondaryIPFailure = 1002;
+  CNIReleaseSecondaryIPFailure = 1003;
 
-	CNIAllocateEIPFailure = 1004;
-	CNIReleaseEIPFailure = 1005;
+  CNIAllocateEIPFailure = 1004;
+  CNIReleaseEIPFailure = 1005;
 
-	CNIBindEIPFailure = 1006;
-	CNIUnbindEIPFailure = 1007;
+  CNIBindEIPFailure = 1006;
+  CNIUnbindEIPFailure = 1007;
 
-	CNIAllocateUNIFailure = 1008;
-	CNIReleaseUNIFailure = 1009;
+  CNIAllocateUNIFailure = 1008;
+  CNIReleaseUNIFailure = 1009;
 
-	CNIAttachUNIFailure = 1010;
-	CNIDetachUNIFailure = 1011;
+  CNIAttachUNIFailure = 1010;
+  CNIDetachUNIFailure = 1011;
 
-	CNIK8SAPIError = 1012;
+  CNIK8SAPIError = 1012;
 
-	CNIWriteDBError = 1013;
-	CNIReadDBError = 1014;
+  CNIWriteDBError = 1013;
+  CNIReadDBError = 1014;
 
-	CNIBorrowIPFailure = 1015;
+  CNIBorrowIPFailure = 1015;
 }

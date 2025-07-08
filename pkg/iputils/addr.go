@@ -59,6 +59,24 @@ func GetMasterInterface() string {
 	return UPHostMasterInterface
 }
 
+func GetLinkByMac(mac string) (netlink.Link, error) {
+	var links []netlink.Link
+	var err error
+	links, err = netlink.LinkList()
+	if err != nil {
+		ulog.Errorf("List all interfaces error: %v", err)
+		return nil, err
+	}
+
+	for _, link := range links {
+		if strings.EqualFold(link.Attrs().HardwareAddr.String(), mac) {
+			return link, nil
+		}
+	}
+
+	return nil, fmt.Errorf("cannot find interface of mac %s", mac)
+}
+
 // Get node master network interface ip and mac address
 func GetNodeAddress(dev string) (string, string, error) {
 	if dev == "" {

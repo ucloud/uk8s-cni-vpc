@@ -42,7 +42,7 @@ func (s *ipamServer) getVpcipClaim(podNS, podName string) (*v1beta1.VpcIpClaim, 
 	return s.crdClient.VipcontrollerV1beta1().VpcIpClaims(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 }
 
-func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId string) error {
+func (s *ipamServer) markVPCIpClaimAttached(req *rpc.AddPodNetworkRequest, vip *v1beta1.VpcIpClaim, sandboxId string) error {
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		vip, localErr := s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Get(context.TODO(), vip.Name, metav1.GetOptions{})
 		if localErr != nil {
@@ -56,11 +56,11 @@ func (s *ipamServer) markVPCIpClaimAttached(vip *v1beta1.VpcIpClaim, sandboxId s
 			vip.Labels = map[string]string{"attached": "true"}
 		}
 		// Restore finalizers
-		vip.ObjectMeta.Finalizers = []string{"cni-vpc-ipamd"}
+		vip.Finalizers = []string{"cni-vpc-ipamd"}
 		vip.Status.Attached = true
 		vip.Status.ReleaseTime = "Never"
 		vip.Status.SandboxId = sandboxId
-		vip.Status.Mac = s.hostMacAddr
+		vip.Status.Mac = req.MacAddress
 		vip.Status.Zone = s.zoneId
 		// Update release time
 		if pod, err := s.getPod(vip.Name, vip.Namespace); err == nil {
@@ -101,8 +101,8 @@ func getOwnerStatefulSetName(pod *v1.Pod) string {
 	return ""
 }
 
-func (s *ipamServer) createVpcIpClaimByPodNetwork(pNet *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
-	vip := PodNetworkToVip(pNet)
+func (s *ipamServer) createVpcIpClaimByPodNetwork(req *rpc.AddPodNetworkRequest, pn *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
+	vip := PodNetworkToVip(pn)
 	vip.Labels = make(map[string]string)
 	ownerSts := getOwnerStatefulSetName(pod)
 	if len(ownerSts) > 0 {
@@ -115,14 +115,14 @@ func (s *ipamServer) createVpcIpClaimByPodNetwork(pNet *rpc.PodNetwork, pod *v1.
 	if err != nil {
 		return nil, err
 	}
-	nvip, err := s.localAttach(vpcclaim, pNet.SandboxID)
+	nvip, err := s.localAttach(req, vpcclaim, vip.Status.SandboxId)
 	if err != nil {
 		return nil, err
 	}
 	return nvip, nil
 }
 
-func (s *ipamServer) localAttach(vip *v1beta1.VpcIpClaim, sandboxId string) (*v1beta1.VpcIpClaim, error) {
+func (s *ipamServer) localAttach(req *rpc.AddPodNetworkRequest, vip *v1beta1.VpcIpClaim, sandboxID string) (*v1beta1.VpcIpClaim, error) {
 	if vip == nil {
 		return nil, errors.New("vpcipclaim object is nil")
 	}
@@ -131,7 +131,7 @@ func (s *ipamServer) localAttach(vip *v1beta1.VpcIpClaim, sandboxId string) (*v1
 	if vpcIp, err := s.uapiDescribeSecondaryIp(vip.Spec.Ip, vip.Spec.SubnetId); err == nil {
 		if vpcIp == nil {
 			//secondary ip has been deleted, so secondary ip should be specify to allocate
-			vpcIp, err = s.uapiAllocateSpecifiedSecondaryIp(vip.Spec.Ip, vip.Spec.SubnetId)
+			vpcIp, err = s.uapiAllocateSpecifiedSecondaryIp(vip.Spec.Ip, req)
 			if err != nil {
 				return nil, fmt.Errorf("failed to allocate specify secondary ip %s in subnet %s err:%v", vip.Spec.Ip, vip.Spec.SubnetId, err)
 			}
@@ -143,16 +143,20 @@ func (s *ipamServer) localAttach(vip *v1beta1.VpcIpClaim, sandboxId string) (*v1
 	}
 
 	// Update ip <--> mac by api call MoveSecondaryIPMac
-	if prevMac != s.hostMacAddr {
-		vip.Status.Mac = s.hostMacAddr
-		if err := s.uapiMoveSecondaryIPMac(vip.Spec.Ip, prevMac, s.hostMacAddr, vip.Spec.SubnetId); err != nil {
-			ulog.Errorf("Move secondary ip %s in subnet %s from %s to %s error: %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr, err)
-			return nil, fmt.Errorf("failed to move secondary ip %s in subnet %s from %s to %s, %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr, err)
+	if prevMac != req.MacAddress {
+		vip.Status.Mac = req.MacAddress
+		if err := s.uapiMoveSecondaryIPMac(&rpc.PodNetwork{
+			VPCIP:      vip.Spec.Ip,
+			MacAddress: prevMac,
+			SubnetID:   vip.Spec.SubnetId,
+		}, req.MacAddress); err != nil {
+			ulog.Errorf("Move secondary ip %s in subnet %s from %s to %s error: %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, req.MacAddress, err)
+			return nil, fmt.Errorf("failed to move secondary ip %s in subnet %s from %s to %s, %v", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, req.MacAddress, err)
 		}
-		ulog.Infof("Move secondary ip %s's mac in subnet %s from %s to %s", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, s.hostMacAddr)
+		ulog.Infof("Move secondary ip %s's mac in subnet %s from %s to %s", vip.Spec.Ip, vip.Spec.SubnetId, prevMac, req.MacAddress)
 	}
 
-	if err := s.markVPCIpClaimAttached(vip, sandboxId); err != nil {
+	if err := s.markVPCIpClaimAttached(req, vip, sandboxID); err != nil {
 		return nil, err
 	}
 
@@ -163,7 +167,7 @@ func VipToPodNetwork(vip *v1beta1.VpcIpClaim) *rpc.PodNetwork {
 	if vip == nil {
 		return nil
 	}
-	pNet := &rpc.PodNetwork{
+	pn := &rpc.PodNetwork{
 		CreateTime:   time.Now().Unix(),
 		VPCIP:        vip.Spec.Ip,
 		VPCID:        vip.Spec.VpcId,
@@ -176,11 +180,11 @@ func VipToPodNetwork(vip *v1beta1.VpcIpClaim) *rpc.PodNetwork {
 		DedicatedUNI: false,
 	}
 
-	return pNet
+	return pn
 }
 
-func PodNetworkToVip(pNet *rpc.PodNetwork) *v1beta1.VpcIpClaim {
-	if pNet == nil {
+func PodNetworkToVip(pn *rpc.PodNetwork) *v1beta1.VpcIpClaim {
+	if pn == nil {
 		return nil
 	}
 	vip := &v1beta1.VpcIpClaim{
@@ -188,21 +192,21 @@ func PodNetworkToVip(pNet *rpc.PodNetwork) *v1beta1.VpcIpClaim {
 			Finalizers: []string{"cni-vpc-ipamd"},
 		},
 		Spec: v1beta1.VpcIpClaimSpec{
-			Ip:       pNet.VPCIP,
-			Gateway:  pNet.Gateway,
-			Mask:     pNet.Mask,
-			VpcId:    pNet.VPCID,
-			SubnetId: pNet.SubnetID,
+			Ip:       pn.VPCIP,
+			Gateway:  pn.Gateway,
+			Mask:     pn.Mask,
+			VpcId:    pn.VPCID,
+			SubnetId: pn.SubnetID,
 		},
 		Status: v1beta1.VpcIpClaimStatus{
 			Attached:       true,
 			LastDetachTime: time.Now().Format("2006-01-02 15:04:05"),
 			ReleaseTime:    "Never",
-			Mac:            pNet.MacAddress,
+			Mac:            pn.MacAddress,
 		},
 	}
 	vip.Kind = "vpcIpClaim"
-	vip.Name = pNet.PodName
-	vip.Namespace = pNet.PodNS
+	vip.Name = pn.PodName
+	vip.Namespace = pn.PodNS
 	return vip
 }

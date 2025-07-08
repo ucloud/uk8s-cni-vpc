@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/ipamd/v1beta1"
+	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
 	vipcontrollerv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
@@ -53,6 +54,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=ipamd.uk8s.com, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithResource("ipamds"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Ipamd().V1beta1().Ipamds().Informer()}, nil
+
+		// Group=podnetworking.uk8s.com, Version=v1beta1
+	case podnetworkingv1beta1.SchemeGroupVersion.WithResource("podnetworkings"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Podnetworking().V1beta1().PodNetworkings().Informer()}, nil
 
 		// Group=vipcontroller.uk8s.com, Version=v1beta1
 	case vipcontrollerv1beta1.SchemeGroupVersion.WithResource("vpcipclaims"):

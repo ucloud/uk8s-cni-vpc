@@ -11,13 +11,9 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package ipamd
+package podnetworking
 
-import (
-	"os"
+// GroupName is the group name used in this package
+const (
+	GroupName = "vpc.uk8s.ucloud.cn"
 )
-
-func pathExist(filename string) bool {
-	_, err := os.Stat(filename)
-	return err == nil || os.IsExist(err)
-}

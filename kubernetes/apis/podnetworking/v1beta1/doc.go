@@ -11,13 +11,8 @@
 // express or implied. See the License for the specific language governing
 // permissions and limitations under the License.
 
-package ipamd
+// +k8s:deepcopy-gen=package
+// +groupName=podnetworking.uk8s.com
 
-import (
-	"os"
-)
-
-func pathExist(filename string) bool {
-	_, err := os.Stat(filename)
-	return err == nil || os.IsExist(err)
-}
+// Package v1 is the v1 version of the API.
+package v1beta1 // import "github.com/ucloud/uk8s-cni-vpc/pkg/apis/podnetworking/v1beta1"
