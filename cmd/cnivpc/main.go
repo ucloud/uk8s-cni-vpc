@@ -35,6 +35,7 @@ import (
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/joho/godotenv"
 	"github.com/vishvananda/netlink"
 )
 
@@ -313,6 +314,8 @@ func tickSuicide(done chan bool) {
 	}
 }
 
+const envFilePath = "/etc/kubernetes/ucloud"
+
 func main() {
 	// Print version
 	if len(os.Args) == 2 && os.Args[1] == "version" {
@@ -321,6 +324,20 @@ func main() {
 	}
 
 	ulog.BinaryMode("/var/log/cnivpc.log")
+
+	_, err := os.Stat(envFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ulog.Warnf("Env file %s not found", envFilePath)
+		} else {
+			ulog.Errorf("Check env file %s error: %v", envFilePath, err)
+		}
+	} else {
+		err = godotenv.Load(envFilePath)
+		if err != nil {
+			ulog.Errorf("Load env file %s error: %v", envFilePath, err)
+		}
+	}
 
 	about := fmt.Sprintf("ucloud-uk8s-cnivpc version %s", vs.CNIVersion)
 

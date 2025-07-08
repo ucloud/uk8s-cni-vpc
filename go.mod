@@ -8,6 +8,7 @@ require (
 	github.com/containernetworking/plugins v0.9.1
 	github.com/coreos/go-iptables v0.6.0
 	github.com/j-keck/arping v1.0.2
+	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-shellwords v1.0.12
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.7.0
