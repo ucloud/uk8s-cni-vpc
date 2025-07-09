@@ -38,6 +38,21 @@ const (
 	SrcRulePriority      = 2048
 )
 
+// RFC 1918
+var privateNetworks = []*net.IPNet{
+	mustParseCIDR("10.0.0.0/8"),     // A class private network
+	mustParseCIDR("172.16.0.0/12"),  // B class private network
+	mustParseCIDR("192.168.0.0/16"), // C class private network
+}
+
+func mustParseCIDR(cidr string) *net.IPNet {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic("failed to parse CIDR: " + cidr + ", error: " + err.Error())
+	}
+	return network
+}
+
 // ip rule add from all to 10.0.2.51 table main
 func ensureDstIPRoutePolicy(ip string) error {
 	rules, err := netlink.RuleList(netlink.FAMILY_V4)
@@ -66,7 +81,7 @@ func ensureDstIPRoutePolicy(ip string) error {
 	return nil
 }
 
-// ip rule add from 10.0.2.51 table 1002
+// ip rule add from 10.0.2.51 to <private-cidr> table 1002
 func ensureSrcIPRoutePolicy(ip, ifname string) error {
 	tableId, err := ifNameToTableId(ifname)
 	if err != nil {
@@ -87,15 +102,19 @@ func ensureSrcIPRoutePolicy(ip, ifname string) error {
 		}
 	}
 
-	rule := netlink.NewRule()
-	rule.Priority = SrcRulePriority
-	rule.Table = tableId
-	rule.Src = netlink.NewIPNet(net.ParseIP(ip))
-	err = netlink.RuleAdd(rule)
-	if err != nil {
-		return fmt.Errorf("fail to add ip rule from %s table %d: %v", ip, tableId, err)
+	for _, privareNet := range privateNetworks {
+		rule := netlink.NewRule()
+		rule.Priority = SrcRulePriority
+		rule.Table = tableId
+		rule.Src = netlink.NewIPNet(net.ParseIP(ip))
+		rule.Dst = privareNet
+		err = netlink.RuleAdd(rule)
+		if err != nil {
+			return fmt.Errorf("fail to add ip rule from %s to %s table %d: %v", ip, privareNet.String(), tableId, err)
+		}
+		ulog.Infof("Add ip rule from %s to %s table %d success", ip, privareNet.String(), tableId)
 	}
-	ulog.Infof("Add ip rule from %s table %d success", ip, tableId)
+
 	return nil
 }
 
@@ -221,37 +240,7 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 	return nil
 }
 
-func ensureUNIOutboundRule(network, primaryIP string) error {
-	rules, err := netlink.RuleList(netlink.FAMILY_V4)
-	if err != nil {
-		return err
-	}
-
-	var found bool
-	for _, rule := range rules {
-		if rule.Priority == OutboundRulePriority && rule.Dst != nil && rule.Dst.String() == network {
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		_, vpcNet, err := net.ParseCIDR(network)
-		if err != nil {
-			return fmt.Errorf("parse cidr %s failed: %v", network, err)
-		}
-
-		rule := netlink.NewRule()
-		rule.Priority = OutboundRulePriority
-		rule.Table = MainTableId
-		rule.Dst = vpcNet
-		rule.Invert = true // not from all to <vpc>
-		err = netlink.RuleAdd(rule)
-		if err != nil {
-			return fmt.Errorf("failed to add outbound rule: %v", err)
-		}
-	}
-
+func ensureUNIOutboundRule(primaryIP string) error {
 	ipt, err := iptables.New()
 	if err != nil {
 		return err
@@ -259,15 +248,19 @@ func ensureUNIOutboundRule(network, primaryIP string) error {
 
 	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
 	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
-	rule := []string{
-		"!", "-d", network, // not to vpc network
+	rule := make([]string, 0)
+	for _, privateNet := range privateNetworks {
+		rule = append(rule, "!", "-d", privateNet.String()) // not to private network
+	}
+
+	rule = append(rule,
 		"-m", "comment",
 		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
 		"-m", "addrtype",
 		"!", "--dst-type", "LOCAL", // not to local address
 		"-j", "SNAT",
 		"--to-source", primaryIP,
-	}
+	)
 
 	exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
 	if err != nil {
