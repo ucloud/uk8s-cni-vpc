@@ -265,8 +265,10 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 		return nil, fmt.Errorf("failed to get master interface addr: %v", err)
 	}
 
+	iface := iputils.GetMasterInterface()
+
 	ulog.Infof("Ensure UNI outbound rule")
-	err = ensureUNIOutboundRule(primaryIP)
+	err = ensureUNIOutboundRule(iface, primaryIP)
 	if err != nil {
 		ulog.Errorf("Ensure UNI outbound rule error: %v", err)
 		return nil, fmt.Errorf("failed to ensure outbound rule: %v", err)

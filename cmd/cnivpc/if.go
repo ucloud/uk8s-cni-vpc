@@ -240,7 +240,7 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 	return nil
 }
 
-func ensureUNIOutboundRule(primaryIP string) error {
+func ensureUNIOutboundRule(iface, primaryIP string) error {
 	ipt, err := iptables.New()
 	if err != nil {
 		return err
@@ -249,7 +249,7 @@ func ensureUNIOutboundRule(primaryIP string) error {
 	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
 	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
 	rule := []string{
-		"-o", "eth0",
+		"-o", iface,
 		"-m", "comment",
 		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
 		"-m", "addrtype",
