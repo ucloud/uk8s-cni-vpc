@@ -102,17 +102,17 @@ func ensureSrcIPRoutePolicy(ip, ifname string) error {
 		}
 	}
 
-	for _, privareNet := range privateNetworks {
+	for _, privateNet := range privateNetworks {
 		rule := netlink.NewRule()
 		rule.Priority = SrcRulePriority
 		rule.Table = tableId
 		rule.Src = netlink.NewIPNet(net.ParseIP(ip))
-		rule.Dst = privareNet
+		rule.Dst = privateNet
 		err = netlink.RuleAdd(rule)
 		if err != nil {
-			return fmt.Errorf("fail to add ip rule from %s to %s table %d: %v", ip, privareNet.String(), tableId, err)
+			return fmt.Errorf("fail to add ip rule from %s to %s table %d: %v", ip, privateNet.String(), tableId, err)
 		}
-		ulog.Infof("Add ip rule from %s to %s table %d success", ip, privareNet.String(), tableId)
+		ulog.Infof("Add ip rule from %s to %s table %d success", ip, privateNet.String(), tableId)
 	}
 
 	return nil
@@ -246,30 +246,27 @@ func ensureUNIOutboundRule(primaryIP string) error {
 		return err
 	}
 
-	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
-	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
-	rule := make([]string, 0)
 	for _, privateNet := range privateNetworks {
-		rule = append(rule, "!", "-d", privateNet.String()) // not to private network
-	}
-
-	rule = append(rule,
-		"-m", "comment",
-		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
-		"-m", "addrtype",
-		"!", "--dst-type", "LOCAL", // not to local address
-		"-j", "SNAT",
-		"--to-source", primaryIP,
-	)
-
-	exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		err = ipt.Append("nat", "POSTROUTING", rule...)
+		// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
+		// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
+		rule := []string{
+			"!", "-d", privateNet.String(), // not to private network
+			"-m", "comment",
+			"--comment", "kubenetes: SNAT for outbound traffic from cluster",
+			"-m", "addrtype",
+			"!", "--dst-type", "LOCAL", // not to local address
+			"-j", "SNAT",
+			"--to-source", primaryIP,
+		}
+		exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
 		if err != nil {
-			return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
+			return err
+		}
+		if !exists {
+			err = ipt.Append("nat", "POSTROUTING", rule...)
+			if err != nil {
+				return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
+			}
 		}
 	}
 
