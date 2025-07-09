@@ -248,6 +248,7 @@ func ensureUNIOutboundRule(iface, primaryIP string) error {
 
 	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
 	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
+	// iptables -t nat -L POSTROUTING -v --line-numbers | grep 'kubenetes: SNAT for outbound traffic from cluster'
 	rule := []string{
 		"-o", iface,
 		"-m", "comment",
