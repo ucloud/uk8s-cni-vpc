@@ -246,27 +246,25 @@ func ensureUNIOutboundRule(primaryIP string) error {
 		return err
 	}
 
-	for _, privateNet := range privateNetworks {
-		// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
-		// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
-		rule := []string{
-			"!", "-d", privateNet.String(), // not to private network
-			"-m", "comment",
-			"--comment", "kubenetes: SNAT for outbound traffic from cluster",
-			"-m", "addrtype",
-			"!", "--dst-type", "LOCAL", // not to local address
-			"-j", "SNAT",
-			"--to-source", primaryIP,
-		}
-		exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
+	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
+	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
+	rule := []string{
+		"-o", "eth0",
+		"-m", "comment",
+		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
+		"-m", "addrtype",
+		"!", "--dst-type", "LOCAL", // not to local address
+		"-j", "SNAT",
+		"--to-source", primaryIP,
+	}
+	exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		err = ipt.Append("nat", "POSTROUTING", rule...)
 		if err != nil {
-			return err
-		}
-		if !exists {
-			err = ipt.Append("nat", "POSTROUTING", rule...)
-			if err != nil {
-				return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
-			}
+			return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
 		}
 	}
 
