@@ -25,6 +25,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
 	"github.com/j-keck/arping"
@@ -32,10 +33,17 @@ import (
 )
 
 const (
-	MainTableId          = 254
-	DstRulePriority      = 512
-	OutboundRulePriority = 1024
-	SrcRulePriority      = 2048
+	MainTableId      = 254
+	DstRulePriority  = 512
+	MarkRulePriority = 1024
+	SrcRulePriority  = 2048
+
+	// defaultConnmark is the default value for the connmark described above.  Note: the mark space is a little crowded,
+	// - kube-proxy uses 0x0000c000
+	// - Calico uses 0xffff0000.
+	defaultConnmark = 0x80
+
+	rpFilterLoose = "2"
 )
 
 // RFC 1918
@@ -240,33 +248,128 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 	return nil
 }
 
-func ensureUNIOutboundRule(iface, primaryIP string) error {
+func ensureMasterInterfaceRpFilter(masterInterface string) error {
+	//  This is required because
+	// - NodePorts are exposed on eth0
+	// - The kernel's RPF check happens after incoming packets to NodePorts are DNATted to the pod IP.
+	// - For pods assigned to secondary ENIs, the routing table includes source-based routing.  When the kernel does
+	//   the RPF check, it looks up the route using the pod IP as the source.
+	// - Thus, it finds the source-based route that leaves via the secondary ENI.
+	// - In "strict" mode, the RPF check fails because the return path uses a different interface to the incoming
+	//   packet.  In "loose" mode, the check passes because some route was found.
+	rpFilterKey := fmt.Sprintf("/proc/sys/net/ipv4/conf/%s/rp_filter", masterInterface)
+	return setProcSys(rpFilterKey, rpFilterLoose)
+}
+
+type iptablesRule struct {
+	name  string
+	table string
+	chain string
+	rule  []string
+}
+
+func ensureUNIIptablesRules(masterInterface, primaryIP string) error {
 	ipt, err := iptables.New()
 	if err != nil {
 		return err
 	}
 
-	// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
-	// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
-	// iptables -t nat -L POSTROUTING -v --line-numbers | grep 'kubenetes: SNAT for outbound traffic from cluster'
-	rule := []string{
-		"-o", iface,
-		"-m", "comment",
-		"--comment", "kubenetes: SNAT for outbound traffic from cluster",
-		"-m", "addrtype",
-		"!", "--dst-type", "LOCAL", // not to local address
-		"-j", "SNAT",
-		"--to-source", primaryIP,
+	rules := []iptablesRule{
+		{
+			// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
+			// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
+			// iptables -t nat -L POSTROUTING -v --line-numbers | grep 'kubenetes: SNAT for outbound traffic from cluster'
+			name:  "SNAT for outbound traffic from cluster",
+			table: "nat",
+			chain: "POSTROUTING",
+			rule: []string{
+				"-o", masterInterface,
+				"-m", "comment",
+				"--comment", "kubernetes: SNAT for outbound traffic from cluster",
+				"-m", "addrtype",
+				"!", "--dst-type", "LOCAL", // not to local address
+				"-j", "SNAT",
+				"--to-source", primaryIP,
+			},
+		},
+		{
+			name:  "CONNMARK for primary interface",
+			table: "mangle",
+			chain: "PREROUTING",
+			rule: []string{
+				"-m", "comment",
+				"--comment", "kubernetes: CONNMARK for primary interface",
+				"-i", masterInterface,
+				"-m", "addrtype",
+				"--dst-type", "LOCAL", "--limit-iface-in",
+				"-j", "CONNMARK",
+				"--set-mark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+			},
+		},
 	}
-	exists, err := ipt.Exists("nat", "POSTROUTING", rule...)
+
+	ifaces, err := uapi.GetNetworkInterfaces()
 	if err != nil {
 		return err
 	}
-	if !exists {
-		err = ipt.Append("nat", "POSTROUTING", rule...)
-		if err != nil {
-			return fmt.Errorf("failed to append iptables rule for outbound traffic %v: %v", rule, err)
+	for _, iface := range ifaces {
+		if iface.Default || iface.Dev == masterInterface {
+			continue
 		}
+		rules = append(rules, iptablesRule{
+			name:  fmt.Sprintf("CONNMARK restore for %s", iface.Dev),
+			table: "mangle",
+			chain: "PREROUTING",
+			rule: []string{
+				"-m", "comment",
+				"--comment", fmt.Sprintf("kubernetes: CONNMARK restore for %s", iface.Dev),
+				"-i", iface.Dev,
+				"-j", "CONNMARK",
+				"--restore-mark",
+				"--mask", fmt.Sprintf("%#x", defaultConnmark),
+			},
+		})
+	}
+
+	for _, rule := range rules {
+		exists, err := ipt.Exists(rule.table, rule.chain, rule.rule...)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			ulog.Infof("Append iptables rule %q (table %s, chain %s): %v", rule.name, rule.table, rule.chain, rule.rule)
+			err = ipt.Append(rule.table, rule.chain, rule.rule...)
+			if err != nil {
+				return fmt.Errorf("failed to append iptables rule %q (table %s, chain %s): %v", rule.name, rule.table, rule.chain, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func ensureConnmarkRule() error {
+	rules, err := netlink.RuleList(netlink.FAMILY_V4)
+	if err != nil {
+		return fmt.Errorf("ip rules list error: %v", err)
+	}
+
+	var exists bool
+	for _, rule := range rules {
+		if rule.Mask == defaultConnmark && rule.Mark == defaultConnmark && rule.Table == MainTableId && rule.Priority == MarkRulePriority {
+			exists = true
+			break
+		}
+	}
+
+	if !exists {
+		rule := netlink.NewRule()
+		rule.Mask = defaultConnmark
+		rule.Mark = defaultConnmark
+		rule.Table = MainTableId
+		rule.Priority = MarkRulePriority
+
+		return netlink.RuleAdd(rule)
 	}
 
 	return nil
@@ -302,4 +405,8 @@ func ifNameToTableId(s string) (int, error) {
 		return 0, err
 	}
 	return 1000 + num, nil
+}
+
+func setProcSys(key, value string) error {
+	return os.WriteFile(key, []byte(value), 0644)
 }

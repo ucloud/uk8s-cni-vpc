@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM uhub.service.ucloud.cn/library/alpine:latest
 
 COPY bin/cnivpc-ipamd /usr/local/bin/
 

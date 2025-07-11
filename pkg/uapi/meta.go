@@ -14,6 +14,8 @@
 package uapi
 
 import (
+	"fmt"
+	"net"
 	"strings"
 	"sync"
 
@@ -113,4 +115,51 @@ func GetObjectIDForSecondaryIP() (string, error) {
 	}
 
 	return instanceId, nil
+}
+
+type NetworkInterface struct {
+	metadata.MDNetworkInterfaces
+
+	Dev string
+}
+
+func GetNetworkInterfaces() ([]NetworkInterface, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	meta, err := GetMeta()
+	if err != nil {
+		return nil, err
+	}
+
+	var ifaceInfos []metadata.MDNetworkInterfaces
+	if len(meta.UHost.NetworkInterfaces) > 0 {
+		ifaceInfos = meta.UHost.NetworkInterfaces
+	} else if len(meta.UPHost.NetworkInterfaces) > 0 {
+		ifaceInfos = meta.UPHost.NetworkInterfaces
+	} else {
+		return nil, fmt.Errorf("unsupported instance type: %s", meta.InstanceId)
+	}
+
+	ifaceMap := make(map[string]metadata.MDNetworkInterfaces)
+	for _, ifaceInfo := range ifaceInfos {
+		ifaceMap[strings.ToUpper(ifaceInfo.Mac)] = ifaceInfo
+	}
+
+	results := make([]NetworkInterface, 0)
+	for _, iface := range ifaces {
+		mac := strings.ToUpper(iface.HardwareAddr.String())
+		ifaceInfo, ok := ifaceMap[mac]
+		if !ok {
+			continue
+		}
+		results = append(results, NetworkInterface{
+			MDNetworkInterfaces: ifaceInfo,
+
+			Dev: iface.Name,
+		})
+	}
+	return results, nil
 }
