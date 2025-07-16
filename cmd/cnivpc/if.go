@@ -249,14 +249,15 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 }
 
 func ensureMasterInterfaceRpFilter(masterInterface string) error {
-	//  This is required because
-	// - NodePorts are exposed on eth0
-	// - The kernel's RPF check happens after incoming packets to NodePorts are DNATted to the pod IP.
-	// - For pods assigned to secondary ENIs, the routing table includes source-based routing.  When the kernel does
-	//   the RPF check, it looks up the route using the pod IP as the source.
-	// - Thus, it finds the source-based route that leaves via the secondary ENI.
-	// - In "strict" mode, the RPF check fails because the return path uses a different interface to the incoming
-	//   packet.  In "loose" mode, the check passes because some route was found.
+	// This is required because
+	// NodePorts are exposed on eth0
+	// The kernel's RPF check happens after incoming packets to NodePorts are DNATted to
+	// the pod IP. For pods assigned to UNIs, the routing table includes source-based
+	// routing.  When the kernel does the RPF check, it looks up the route using the pod
+	// IP as the source. Thus, it finds the source-based route that leaves via the UNI.
+	// In "strict" mode, the RPF check fails because the return path uses a different
+	// interface to the incoming packet.  In "loose" mode, the check passes because some
+	// route was found.
 	rpFilterKey := fmt.Sprintf("/proc/sys/net/ipv4/conf/%s/rp_filter", masterInterface)
 	return setProcSys(rpFilterKey, rpFilterLoose)
 }
@@ -276,16 +277,15 @@ func ensureUNIIptablesRules(masterInterface, primaryIP string) error {
 
 	rules := []iptablesRule{
 		{
-			// Use SNAT to ensure outbound traffic packet's source IP is the primary IP, not pod IP
-			// See: <https://github.com/aws/amazon-vpc-cni-k8s/blob/master/docs/cni-proposal.md#pod-to-external-communications>
-			// iptables -t nat -L POSTROUTING -v --line-numbers | grep 'kubenetes: SNAT for outbound traffic from cluster'
+			// Use SNAT to ensure outbound traffic packet's source IP is the primary IP,
+			// not pod IP
 			name:  "SNAT for outbound traffic from cluster",
 			table: "nat",
 			chain: "POSTROUTING",
 			rule: []string{
 				"-o", masterInterface,
 				"-m", "comment",
-				"--comment", "kubernetes: SNAT for outbound traffic from cluster",
+				"--comment", "uk8s-cni-vpc: SNAT for outbound traffic from cluster",
 				"-m", "addrtype",
 				"!", "--dst-type", "LOCAL", // not to local address
 				"-j", "SNAT",
@@ -293,12 +293,14 @@ func ensureUNIIptablesRules(masterInterface, primaryIP string) error {
 			},
 		},
 		{
+			// Mark the packets and connection that come from the primary interface, so that
+			// we can route the return packets back to the primary interface.
 			name:  "CONNMARK for primary interface",
 			table: "mangle",
 			chain: "PREROUTING",
 			rule: []string{
 				"-m", "comment",
-				"--comment", "kubernetes: CONNMARK for primary interface",
+				"--comment", "uk8s-cni-vpc: CONNMARK for primary interface",
 				"-i", masterInterface,
 				"-m", "addrtype",
 				"--dst-type", "LOCAL", "--limit-iface-in",
