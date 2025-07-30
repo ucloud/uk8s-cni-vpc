@@ -324,7 +324,7 @@ func ensureUNIIptablesRules(masterInterface, primaryIP string) error {
 			chain: "PREROUTING",
 			rule: []string{
 				"-m", "comment",
-				"--comment", fmt.Sprintf("kubernetes: CONNMARK restore for %s", iface.Dev),
+				"--comment", fmt.Sprintf("uk8s-cni-vpc: CONNMARK restore for %s", iface.Dev),
 				"-i", iface.Dev,
 				"-j", "CONNMARK",
 				"--restore-mark",
