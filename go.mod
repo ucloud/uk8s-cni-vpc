@@ -1,6 +1,6 @@
 module github.com/ucloud/uk8s-cni-vpc
 
-go 1.21
+go 1.24.5
 
 require (
 	github.com/boltdb/bolt v1.3.1
