@@ -640,12 +640,11 @@ func (s *ipamServer) getPool(subnetID string, create bool) (database.Database[rp
 	s.poolLock.Lock()
 	defer s.poolLock.Unlock()
 
-	var dbName string
-	if subnetID != "" {
-		dbName = fmt.Sprintf("%s-%s", PoolDBName, subnetID)
-	} else {
-		dbName = PoolDBName
+	if subnetID == "" {
+		subnetID = s.uapi.SubnetID()
 	}
+
+	dbName := fmt.Sprintf("%s-%s", PoolDBName, subnetID)
 	pool, ok := s.poolDB[dbName]
 	if !ok {
 		if !create {

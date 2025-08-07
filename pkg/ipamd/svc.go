@@ -110,6 +110,10 @@ func Start() error {
 		nodeName: os.Getenv("KUBE_NODE_NAME"),
 	}
 	ipd.initServer()
+	err = ipd.migrateV1BoltDB()
+	if err != nil {
+		return fmt.Errorf("failed to migrate v1 bolt db: %v", err)
+	}
 	// Enable telemetry
 	rpc.RegisterCNIIpamServer(server, ipd)
 	ulog.Infof("Start ipamd on node %v %v, kubernetes version: %v", os.Getenv("KUBE_NODE_NAME"), ipd.hostId, ipd.k8sVersion)
@@ -231,6 +235,54 @@ func (s *ipamServer) initServer() {
 			s.svcCIDR = svcCIDR
 		}
 	}
+}
+
+func (s *ipamServer) migrateV1BoltDB() error {
+	oldPool, err := database.NewBolt[rpc.PodNetwork](PoolDBName, s.dbHandler)
+	if err != nil {
+		return fmt.Errorf("failed to open old pool database %s: %v", PoolDBName, err)
+	}
+
+	defaultSubnet := s.uapi.SubnetID()
+	defaultMacAddr := s.masterMacAddress
+
+	count, err := oldPool.Count()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		ulog.Infof("No ip in old v1 pool database %s, skip migration", PoolDBName)
+		return nil
+	}
+
+	ulog.Infof("Found %d ip in old v1 pool database %s, start migration", count, PoolDBName)
+	newPool, err := s.getPool("", true)
+	if err != nil {
+		return fmt.Errorf("failed to get new pool database: %v", err)
+	}
+
+	for {
+		kv, err := oldPool.Pop()
+		if err != nil {
+			if database.IsEOF(err) {
+				ulog.Infof("Migration from old v1 pool database %s finished", PoolDBName)
+				break
+			}
+			return err
+		}
+
+		// Fill v2 info
+		kv.Value.SubnetID = defaultSubnet
+		kv.Value.MacAddress = defaultMacAddr
+
+		ulog.Infof("Migrate v1 pod network %s: %+v", kv.Key, kv.Value)
+		err = newPool.Put(kv.Key, kv.Value)
+		if err != nil {
+			return fmt.Errorf("failed to put migrated pod network %s: %v", kv.Key, err)
+		}
+	}
+
+	return nil
 }
 
 // Remove socket file on my termination.
