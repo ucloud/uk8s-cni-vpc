@@ -266,7 +266,6 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 	}
 
 	masterIface := iputils.GetMasterInterface()
-
 	err = ensureMasterInterfaceRpFilter(masterIface)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure master interface rp_filter: %v", err)

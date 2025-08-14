@@ -15,7 +15,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"strconv"
@@ -43,7 +42,9 @@ const (
 	// - Calico uses 0xffff0000.
 	defaultConnmark = 0x80
 
-	rpFilterLoose = "2"
+	rpFilterOff    = "0"
+	rpFilterStrict = "1"
+	rpFilterLoose  = "2"
 )
 
 // RFC 1918
@@ -171,10 +172,6 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		}
 	}
 
-	// Turn off reverse path filter
-	if err := ensureRPFilterOff(); err != nil {
-		return err
-	}
 	// Modify MTU:
 	// ip link set dev eth1 mtu 1452
 	err = netlink.LinkSetMTU(link, defaultMtu)
@@ -209,6 +206,11 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 			continue
 		}
 		netlink.RouteDel(&route)
+	}
+
+	// ensure rp_filter=1
+	if err := ensureUNIRpFilter(linkName); err != nil {
+		return fmt.Errorf("failed to ensure %s rp_filter: %v", linkName, err)
 	}
 
 	// Establish gateway route:
@@ -246,6 +248,21 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		}
 	}
 	return nil
+}
+
+func ensureAllRPFilterOff() error {
+	// Turn off reverse path filter according to https://docs.ucloud.cn/vpc/guide/uni
+	// Seemingly useless setting
+	rpFilterCnfFile := "/proc/sys/net/ipv4/conf/all/rp_filter"
+	return setProcSys(rpFilterCnfFile, rpFilterOff)
+}
+
+func ensureUNIRpFilter(ifName string) error {
+	// on ubuntu 20/22/24 default value is 2, change it to 1
+	// otherwise garp ip conflict detection(rfc5227) would fail
+	// on centos 7 default value is already 1
+	rpFilterKey := fmt.Sprintf("/proc/sys/net/ipv4/conf/%s/rp_filter", ifName)
+	return setProcSys(rpFilterKey, rpFilterStrict)
 }
 
 func ensureMasterInterfaceRpFilter(masterInterface string) error {
@@ -374,23 +391,6 @@ func ensureConnmarkRule() error {
 		return netlink.RuleAdd(rule)
 	}
 
-	return nil
-}
-
-func ensureRPFilterOff() error {
-	rpFilterCnfFile := "/proc/sys/net/ipv4/conf/all/rp_filter"
-	err := os.Truncate(rpFilterCnfFile, 0)
-	if err != nil {
-		ulog.Errorf("Truncate file %s error: %v", rpFilterCnfFile, err)
-		return err
-	}
-	f, err := os.OpenFile(rpFilterCnfFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		ulog.Errorf("Open file %s error: %v", rpFilterCnfFile, err)
-		return err
-	}
-	defer f.Close()
-	io.WriteString(f, "0")
 	return nil
 }
 
