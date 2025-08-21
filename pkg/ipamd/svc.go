@@ -41,6 +41,8 @@ const (
 	PoolDBName           = "cni-vpc-ip-pool"
 	CooldownDBName       = "cni-vpc-ip-cooldown"
 	DefaultListenTCPPort = 7312
+
+	storageFile = "/opt/cni/networkbolt.db"
 )
 
 type ipamServer struct {
@@ -51,7 +53,8 @@ type ipamServer struct {
 	dbHandler *bolt.DB
 
 	networkDB  database.Database[rpc.PodNetwork]
-	poolDB     database.Database[rpc.PodNetwork]
+	poolLock   sync.Mutex
+	poolDB     map[string]database.Database[rpc.PodNetwork]
 	cooldownDB database.Database[CooldownItem]
 
 	nodeName string
@@ -61,13 +64,13 @@ type ipamServer struct {
 	unschedulable bool
 
 	// UHostId, UPHostId ...
-	hostId string
-	// eth0 for UHost, eth1 for UPHost
-	hostMacAddr string
-	zoneId      string
-	k8sVersion  string
-	svcCIDR     *net.IPNet
-	nodeIpAddr  *netlink.Addr
+	hostId     string
+	zoneId     string
+	k8sVersion string
+	svcCIDR    *net.IPNet
+	nodeIpAddr *netlink.Addr
+
+	masterMacAddress string
 
 	assignLock sync.RWMutex
 
@@ -107,6 +110,10 @@ func Start() error {
 		nodeName: os.Getenv("KUBE_NODE_NAME"),
 	}
 	ipd.initServer()
+	err = ipd.migrateV1BoltDB()
+	if err != nil {
+		return fmt.Errorf("failed to migrate v1 bolt db: %v", err)
+	}
 	// Enable telemetry
 	rpc.RegisterCNIIpamServer(server, ipd)
 	ulog.Infof("Start ipamd on node %v %v, kubernetes version: %v", os.Getenv("KUBE_NODE_NAME"), ipd.hostId, ipd.k8sVersion)
@@ -120,9 +127,11 @@ func Start() error {
 	go ipd.ipPoolWatermarkManager()
 	go ipd.reconcile()
 
-	// UPHost doesn't support uni, no need to run device plugin.
-	// Type O/OS doesn't support uni, no need to run device plugin.
-	if ipd.uniEnabled(os.Getenv("KUBE_NODE_NAME")) {
+	ability, err := uapi.GetAbility()
+	if err != nil {
+		ulog.Fatalf("Get instance ability error: %v", err)
+	}
+	if ability.SupportUNI {
 		go func() {
 			err = startDevicePlugin()
 			if err != nil {
@@ -158,27 +167,9 @@ func Start() error {
 	return fmt.Errorf("failed to server: %v", err)
 }
 
-func (s *ipamServer) uniEnabled(nodeName string) bool {
-	instanceType, err := s.getKubeNodeLabel(nodeName, KubeNodeInstanceTypeKey)
-	if err != nil {
-		return false
-	}
-	machineType, err := s.getKubeNodeLabel(nodeName, KubeNodeMachineTypeKey)
-	if err != nil {
-		return false
-	}
-
-	if instanceType == "uhost" {
-		if machineType != "O" && machineType != "OS" {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *ipamServer) initServer() {
 	// About k8s version
-	k8sVersion, err := s.kubeClient.DiscoveryClient.ServerVersion()
+	k8sVersion, err := s.kubeClient.ServerVersion()
 	if err != nil {
 		ulog.Fatalf("Cannot get k8s apiserver version, %v", err)
 	}
@@ -197,12 +188,7 @@ func (s *ipamServer) initServer() {
 		}
 	}
 	s.zoneId = zoneId
-	// Fetch node's master network device mac address
-	macAddr, err := iputils.GetNodeMacAddress("")
-	if err != nil {
-		ulog.Fatalf("Cannot get node master network interface mac addr, %v", err)
-	}
-	s.hostMacAddr = macAddr
+
 	// Fetch node's master network device ip address
 	nodeIp, err := iputils.GetNodeIPAddress("")
 	if err != nil {
@@ -210,6 +196,12 @@ func (s *ipamServer) initServer() {
 	} else {
 		s.nodeIpAddr = nodeIp
 	}
+
+	masterMacAddress, err := iputils.GetNodeMacAddress("")
+	if err != nil {
+		ulog.Fatalf("Cannot get node MAC address, %v", err)
+	}
+	s.masterMacAddress = masterMacAddress
 
 	ip := s.nodeIpAddr.IP.String()
 	s.tcpAddr = os.Getenv("LISTEN_TCP_ADDR")
@@ -225,10 +217,7 @@ func (s *ipamServer) initServer() {
 	if err != nil {
 		ulog.Fatalf("Init network database error: %v", err)
 	}
-	s.poolDB, err = database.NewBolt[rpc.PodNetwork](PoolDBName, s.dbHandler)
-	if err != nil {
-		ulog.Fatalf("Init vpc ip pool database error: %v", err)
-	}
+	s.poolDB = make(map[string]database.Database[rpc.PodNetwork], 1)
 	s.cooldownDB, err = database.NewBolt[CooldownItem](CooldownDBName, s.dbHandler)
 	if err != nil {
 		ulog.Fatalf("Init cooldown database error: %v", err)
@@ -248,11 +237,59 @@ func (s *ipamServer) initServer() {
 	}
 }
 
+func (s *ipamServer) migrateV1BoltDB() error {
+	oldPool, err := database.NewBolt[rpc.PodNetwork](PoolDBName, s.dbHandler)
+	if err != nil {
+		return fmt.Errorf("failed to open old pool database %s: %v", PoolDBName, err)
+	}
+
+	defaultSubnet := s.uapi.SubnetID()
+	defaultMacAddr := s.masterMacAddress
+
+	count, err := oldPool.Count()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		ulog.Infof("No ip in old v1 pool database %s, skip migration", PoolDBName)
+		return nil
+	}
+
+	ulog.Infof("Found %d ip in old v1 pool database %s, start migration", count, PoolDBName)
+	newPool, err := s.getPool("", true)
+	if err != nil {
+		return fmt.Errorf("failed to get new pool database: %v", err)
+	}
+
+	for {
+		kv, err := oldPool.Pop()
+		if err != nil {
+			if database.IsEOF(err) {
+				ulog.Infof("Migration from old v1 pool database %s finished", PoolDBName)
+				break
+			}
+			return err
+		}
+
+		// Fill v2 info
+		kv.Value.SubnetID = defaultSubnet
+		kv.Value.MacAddress = defaultMacAddr
+
+		ulog.Infof("Migrate v1 pod network %s: %+v", kv.Key, kv.Value)
+		err = newPool.Put(kv.Key, kv.Value)
+		if err != nil {
+			return fmt.Errorf("failed to put migrated pod network %s: %v", kv.Key, err)
+		}
+	}
+
+	return nil
+}
+
 // Remove socket file on my termination.
 // Remove any pre-allocated secondary vpc ip.
 func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, os.Kill, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	ulog.Infof("Receive signal %+v, will stop myself gracefully", sig)
 	chanStopLoop <- true

@@ -40,7 +40,7 @@ func acquireLock() (*lockfile.Lockfile, error) {
 	for {
 		tries--
 		if tries <= 0 {
-			return nil, fmt.Errorf("Lockfile not acquired, aborting")
+			return nil, fmt.Errorf("lockfile not acquired, aborting")
 		}
 
 		err := lock.TryLock()

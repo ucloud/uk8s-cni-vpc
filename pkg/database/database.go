@@ -16,8 +16,8 @@ package database
 import "errors"
 
 var (
-	EOF         = errors.New("No remain item to pop")
-	ErrNotFound = errors.New("Could not find this key in database")
+	ErrEOF      = errors.New("no remain item to pop")
+	ErrNotFound = errors.New("could not find this key in database")
 )
 
 // Database is a Key-Value based database interface. It is used to store data
@@ -60,7 +60,7 @@ func IsNotFound(err error) bool {
 }
 
 func IsEOF(err error) bool {
-	return errors.Is(err, EOF)
+	return errors.Is(err, ErrEOF)
 }
 
 func PodKey(podName, podNS, sandboxId string) string {

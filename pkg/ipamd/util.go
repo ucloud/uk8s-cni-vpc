@@ -14,60 +14,10 @@
 package ipamd
 
 import (
-	"io"
 	"os"
-	"strings"
 )
-
-func hostType(resourceId string) string {
-	if strings.HasPrefix(resourceId, "uhost-") {
-		return "UHost"
-	} else if strings.HasPrefix(resourceId, "upm-") {
-		return "UPM"
-	} else if strings.HasPrefix(resourceId, "docker-") {
-		return "UDocker"
-	} else if strings.HasPrefix(resourceId, "udhost-") {
-		return "UDHost"
-	}
-	return "UHost"
-}
 
 func pathExist(filename string) bool {
 	_, err := os.Stat(filename)
 	return err == nil || os.IsExist(err)
-}
-
-// copyFileContents copies a file
-func copyFileContents(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		e := out.Close()
-		if err == nil {
-			err = e
-		}
-	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return err
-	}
-	err = out.Sync()
-	if err != nil {
-		return err
-	}
-	si, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	err = os.Chmod(dst, si.Mode())
-	if err != nil {
-		return err
-	}
-	return err
 }

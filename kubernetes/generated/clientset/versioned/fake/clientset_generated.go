@@ -19,6 +19,8 @@ import (
 	clientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/ipamd/v1beta1"
 	fakeipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/ipamd/v1beta1/fake"
+	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/podnetworking/v1beta1"
+	fakepodnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/podnetworking/v1beta1/fake"
 	vipcontrollerv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/vipcontroller/v1beta1"
 	fakevipcontrollerv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned/typed/vipcontroller/v1beta1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -78,6 +80,11 @@ var _ clientset.Interface = &Clientset{}
 // IpamdV1beta1 retrieves the IpamdV1beta1Client
 func (c *Clientset) IpamdV1beta1() ipamdv1beta1.IpamdV1beta1Interface {
 	return &fakeipamdv1beta1.FakeIpamdV1beta1{Fake: &c.Fake}
+}
+
+// PodnetworkingV1beta1 retrieves the PodnetworkingV1beta1Client
+func (c *Clientset) PodnetworkingV1beta1() podnetworkingv1beta1.PodnetworkingV1beta1Interface {
+	return &fakepodnetworkingv1beta1.FakePodnetworkingV1beta1{Fake: &c.Fake}
 }
 
 // VipcontrollerV1beta1 retrieves the VipcontrollerV1beta1Client

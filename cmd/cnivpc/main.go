@@ -35,6 +35,7 @@ import (
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ip"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/joho/godotenv"
 	"github.com/vishvananda/netlink"
 )
 
@@ -90,22 +91,32 @@ func cmdAdd(args *skel.CmdArgs) error {
 	podNS := podArgs["K8S_POD_NAMESPACE"]
 	sandBoxId := podArgs["K8S_POD_INFRA_CONTAINER_ID"]
 	netNS := os.Getenv("CNI_NETNS")
-	masterInterface := iputils.GetMasterInterface()
 
 	// To assign a VPC IP for pod
-	pNet, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
+	pn, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
 	if err != nil {
 		ulog.Errorf("Assign a vpc ip for pod %s/%s error: %v", podName, podNS, err)
 		return fmt.Errorf("failed to assign ip: %v", err)
 	}
 
 	rollbackReleaseIP := func() {
-		err = releasePodIp(podName, podNS, sandBoxId, pNet)
+		err = releasePodIp(podName, podNS, sandBoxId, pn)
 		if err != nil {
-			ulog.Errorf("Release ip %s after failure error: %v, ip might leak", pNet.VPCIP, err)
+			ulog.Errorf("Release ip %s after failure error: %v, ip might leak", pn.VPCIP, err)
 		}
 	}
 
+	var masterInterface string
+	if strings.HasPrefix(pn.InterfaceID, "uni-") {
+		link, err := iputils.GetLinkByMac(pn.MacAddress)
+		if err == nil {
+			masterInterface = link.Attrs().Name
+		}
+	}
+	if masterInterface == "" {
+		masterInterface = iputils.GetMasterInterface()
+	}
+	ulog.Infof("pod %s/%s master interface: %s", podNS, podName, masterInterface)
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
@@ -113,31 +124,29 @@ func cmdAdd(args *skel.CmdArgs) error {
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to enable proxy arp: %v", err)
 		}
-		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pNet.VPCIP), iputils.GetMasterInterface())
+		conflict, err := arping.DetectIpConflictWithGratuitousArp(net.ParseIP(pn.VPCIP), masterInterface)
 		if err != nil {
-			ulog.Errorf("Detect conflict for ip %v of pod %v error: %v", pNet.VPCIP, podName, err)
+			ulog.Errorf("Detect conflict for ip %v of pod %v error: %v", pn.VPCIP, podName, err)
 			rollbackReleaseIP()
 			return fmt.Errorf("failed to detect conflict: %v", err)
 		}
 		if conflict {
-			ulog.Errorf("IP %v is still in conflict after retrying for pod %v", pNet.VPCIP, podName)
+			ulog.Errorf("IP %v is still in conflict after retrying for pod %v", pn.VPCIP, podName)
 			rollbackReleaseIP()
-			return IPConflictError
+			return ErrIPConflict
 		}
 	}
 
-	// No UNI, we need to setup vethpair to pod's network namespace
-	if !pNet.DedicatedUNI {
-		err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pNet)
-		if err != nil {
-			ulog.Errorf("Setup pod veth network error: %v", err)
-			rollbackReleaseIP()
-			return fmt.Errorf("failed to setup veth network: %v", err)
-		}
+	// We need to setup vethpair to pod's network namespace
+	err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pn)
+	if err != nil {
+		ulog.Errorf("Setup pod veth network error: %v", err)
+		rollbackReleaseIP()
+		return fmt.Errorf("failed to setup veth network: %v", err)
 	}
 
-	//ip_local_port_range
-	err = setNodePortRange(podName, podNS, netNS, sandBoxId, pNet)
+	// ip_local_port_range
+	err = setNodePortRange(podName, podNS, netNS, sandBoxId, pn)
 	if err != nil {
 		ulog.Errorf("Set node port range network error: %v", err)
 		rollbackReleaseIP()
@@ -152,10 +161,10 @@ func cmdAdd(args *skel.CmdArgs) error {
 		// TODO: support v6
 		Version: "4",
 		Address: net.IPNet{
-			IP:   net.ParseIP(pNet.VPCIP),
-			Mask: net.IPMask(net.ParseIP(pNet.Mask)),
+			IP:   net.ParseIP(pn.VPCIP),
+			Mask: net.IPMask(net.ParseIP(pn.Mask)),
 		},
-		Gateway:   net.ParseIP(pNet.Gateway),
+		Gateway:   net.ParseIP(pn.Gateway),
 		Interface: current.Int(0),
 	}
 	result.IPs = append(result.IPs, ipconfig)
@@ -163,7 +172,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	itface := &current.Interface{
 		// We need to use eth0 to virualize slave interfaces during next phase: ipvlan
 		Name:    "eth0",
-		Mac:     pNet.MacAddress,
+		Mac:     pn.MacAddress,
 		Sandbox: netNS,
 	}
 	result.Interfaces = append(result.Interfaces, itface)
@@ -172,9 +181,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 		result.Routes = routes
 	}
 
-	err = addPodNetworkRecord(podName, podNS, sandBoxId, pNet)
+	err = addPodNetworkRecord(podName, podNS, sandBoxId, pn)
 	if err != nil {
-		ulog.Errorf("Record pod network info for %s/%s, sandbox: %s, ip: %s, error: %v", podName, podNS, sandBoxId, pNet.VPCIP, err)
+		ulog.Errorf("Record pod network info for %s/%s, sandbox: %s, ip: %s, error: %v", podName, podNS, sandBoxId, pn.VPCIP, err)
 		return fmt.Errorf("failed to add pod network record: %v", err)
 	}
 	// Fill result routes
@@ -204,21 +213,22 @@ func cmdDel(args *skel.CmdArgs) error {
 	netNS := os.Getenv("CNI_NETNS")
 	sandBoxId := podArgs["K8S_POD_INFRA_CONTAINER_ID"]
 	_ = conf
-	pNet, err := getPodNetworkRecord(podName, podNS, sandBoxId)
+	pn, err := getPodNetworkRecord(podName, podNS, sandBoxId)
 	if err != nil {
 		// podIP may be deleted in previous CNI DEL action
 		ulog.Warnf("Get pod IP from local storage for pods %s, sandbox %v error: %v", podName, sandBoxId, err)
 		return nil
 	}
 	// podIP may be deleted in previous CNI DEL action
-	if pNet != nil && len(pNet.VPCIP) > 0 {
-		ulog.Infof("Pod network info %+v", pNet)
-		err = releasePodIp(podName, podNS, sandBoxId, pNet)
-		if err != nil {
-			return fmt.Errorf("failed to release pod ip %v, %v", pNet.VPCIP, err)
+	if pn != nil && len(pn.VPCIP) > 0 {
+		ulog.Infof("Pod network info %+v", pn)
+		if err = cleanUpIPRoutePolicy(pn.VPCIP); err != nil {
+			return fmt.Errorf("fail to clean up ip rules: %v", err)
 		}
-		err = delPodNetworkRecord(podName, podNS, sandBoxId, pNet)
-		if err != nil {
+		if err = releasePodIp(podName, podNS, sandBoxId, pn); err != nil {
+			return fmt.Errorf("failed to release pod ip %v, %v", pn.VPCIP, err)
+		}
+		if err = delPodNetworkRecord(podName, podNS, sandBoxId); err != nil {
 			ulog.Warnf("Delete pod network record of %s/%s error: %v", podName, podNS, err)
 		}
 	}
@@ -304,6 +314,8 @@ func tickSuicide(done chan bool) {
 	}
 }
 
+const envFilePath = "/etc/kubernetes/ucloud"
+
 func main() {
 	// Print version
 	if len(os.Args) == 2 && os.Args[1] == "version" {
@@ -312,6 +324,20 @@ func main() {
 	}
 
 	ulog.BinaryMode("/var/log/cnivpc.log")
+
+	_, err := os.Stat(envFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ulog.Warnf("Env file %s not found", envFilePath)
+		} else {
+			ulog.Errorf("Check env file %s error: %v", envFilePath, err)
+		}
+	} else {
+		err = godotenv.Load(envFilePath)
+		if err != nil {
+			ulog.Errorf("Load env file %s error: %v", envFilePath, err)
+		}
+	}
 
 	about := fmt.Sprintf("ucloud-uk8s-cnivpc version %s", vs.CNIVersion)
 
