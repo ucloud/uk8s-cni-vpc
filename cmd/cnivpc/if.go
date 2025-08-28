@@ -386,7 +386,7 @@ func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
 	// Exclude VPC traffic from SNAT rule
 	for _, cidr := range m.vpcCIDRs {
 		rules = append(rules, iptablesRule{
-			name:        "exclude vpc traffic",
+			name:        snatChainName,
 			shouldExist: true,
 			table:       "nat",
 			chain:       snatChainName,
@@ -402,7 +402,7 @@ func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
 		table:       "nat",
 		chain:       snatChainName,
 		rule: []string{
-			"-o", "eth0",
+			"-o", m.primayInterface,
 			"-m", "comment", "--comment", "UCLOUD SNAT",
 			"-m", "addrtype", "!", "--dst-type", "LOCAL",
 			"-j", "SNAT", "--to-source", m.primaryIP,
