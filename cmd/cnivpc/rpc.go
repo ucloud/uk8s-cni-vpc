@@ -271,9 +271,14 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 		return nil, fmt.Errorf("failed to ensure master interface rp_filter: %v", err)
 	}
 
-	err = ensureUNIIptablesRules(masterIface, primaryIP)
+	iptablesRulesManager, err := newIptablesRulesManager(primaryIP, masterIface)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ensure iptables rule: %v", err)
+		return nil, err
+	}
+
+	err = iptablesRulesManager.updateRules()
+	if err != nil {
+		return nil, err
 	}
 
 	err = ensureConnmarkRule()
@@ -598,7 +603,6 @@ func allocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, uni *vpc.NetworkInterface
 	}
 
 	r, err := c.AddPodNetwork(context.Background(), req)
-
 	if err != nil {
 		ulog.Errorf("Error received from AddPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, sandboxID, err)
 		return nil, err
@@ -617,7 +621,6 @@ func deallocateSecondaryIPFromIpamd(c rpc.CNIIpamClient, podName, podNS, podInfr
 		PodNetwork: pn,
 	}
 	r, err := c.DelPodNetwork(context.Background(), delRPC)
-
 	if err != nil {
 		ulog.Errorf("Error received from DelPodNetwork gRPC call for pod %s namespace %s container %s: %v", podName, podNS, podInfraContainerID, err)
 		return err
@@ -664,7 +667,6 @@ func addPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		&rpc.AddPodNetworkRecordRequest{
 			PodNetwork: pn,
 		})
-
 	if err != nil {
 		ulog.Errorf("Error received from AddPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)
@@ -711,7 +713,6 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 			PodNS:     podNS,
 			SandboxID: sandBoxID,
 		})
-
 	if err != nil {
 		ulog.Errorf("Error received from DelPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)
@@ -762,7 +763,6 @@ func getPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 			PodNS:     podNS,
 			SandboxID: sandBoxID,
 		})
-
 	if err != nil {
 		ulog.Errorf("Error received from GetPodNetworkRecord gRPC call for pod %s namespace %s container %s: %v",
 			podName, podNS, sandBoxID, err)

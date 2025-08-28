@@ -24,7 +24,6 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 
 	"github.com/j-keck/arping"
@@ -46,14 +45,6 @@ const (
 	rpFilterStrict = "1"
 	rpFilterLoose  = "2"
 )
-
-func mustParseCIDR(cidr string) *net.IPNet {
-	_, network, err := net.ParseCIDR(cidr)
-	if err != nil {
-		panic("failed to parse CIDR: " + cidr + ", error: " + err.Error())
-	}
-	return network
-}
 
 // ip rule add from all to 10.0.2.51 table main
 func ensureDstIPRoutePolicy(ip string) error {
@@ -269,92 +260,277 @@ func ensureMasterInterfaceRpFilter(masterInterface string) error {
 	return setProcSys(rpFilterKey, rpFilterLoose)
 }
 
+const (
+	connmarkChainName = "UCLOUD-CONNMARK-CHAIN-0"
+	snatChainName     = "UCLOUD-SNAT-CHAIN-0"
+)
+
 type iptablesRule struct {
-	name  string
-	table string
-	chain string
-	rule  []string
+	name        string
+	shouldExist bool
+	table       string
+	chain       string
+	rule        []string
 }
 
-func ensureUNIIptablesRules(masterInterface, primaryIP string) error {
-	ipt, err := iptables.New()
-	if err != nil {
-		return err
-	}
+func (r iptablesRule) String() string {
+	return fmt.Sprintf("IptablesRule {name: %s, shouldExist: %t, table: %s, chain: %s, rule: %v}", r.name, r.shouldExist, r.table, r.chain, r.rule)
+}
 
-	rules := []iptablesRule{
-		{
-			// Use SNAT to ensure outbound traffic packet's source IP is the primary IP,
-			// not pod IP
-			name:  "SNAT for outbound traffic from cluster",
-			table: "nat",
-			chain: "POSTROUTING",
-			rule: []string{
-				"-o", masterInterface,
-				"-m", "comment",
-				"--comment", "uk8s-cni-vpc: SNAT for outbound traffic from cluster",
-				"-m", "addrtype",
-				"!", "--dst-type", "LOCAL", // not to local address
-				"-j", "SNAT",
-				"--to-source", primaryIP,
-			},
-		},
-		{
-			// Mark the packets and connection that come from the primary interface, so that
-			// we can route the return packets back to the primary interface.
-			name:  "CONNMARK for primary interface",
-			table: "mangle",
-			chain: "PREROUTING",
-			rule: []string{
-				"-m", "comment",
-				"--comment", "uk8s-cni-vpc: CONNMARK for primary interface",
-				"-i", masterInterface,
-				"-m", "addrtype",
-				"--dst-type", "LOCAL", "--limit-iface-in",
-				"-j", "CONNMARK",
-				"--set-mark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
-			},
-		},
-	}
+func updateIptablesRules(rules []iptablesRule, ipt *iptables.IPTables) error {
+	for _, rule := range rules {
+		exists, err := ipt.Exists(rule.table, rule.chain, rule.rule...)
+		ulog.Infof("Execute iptable rule: %v, exists: %v, err: %v", rule, exists, err)
+		if err != nil {
+			return fmt.Errorf("failed to check iptables rule %q exists: %v", rule.name, err)
+		}
 
-	ifaces, err := uapi.GetNetworkInterfaces()
-	if err != nil {
-		return err
-	}
-	for _, iface := range ifaces {
-		if iface.Default || iface.Dev == masterInterface {
+		if !exists && rule.shouldExist {
+			if rule.name == connmarkChainName || rule.name == snatChainName {
+				// All CIDR rules must go before the SNAT/Mark rule
+				err = ipt.Insert(rule.table, rule.chain, 1, rule.rule...)
+				if err != nil {
+					return fmt.Errorf("failed to insert iptables rule %q: %v", rule.name, err)
+				}
+				continue
+			}
+
+			err = ipt.Append(rule.table, rule.chain, rule.rule...)
+			if err != nil {
+				return fmt.Errorf("failed to append iptables rule %q: %v", rule.name, err)
+			}
 			continue
 		}
+
+		if exists && !rule.shouldExist {
+			err = ipt.Delete(rule.table, rule.chain, rule.rule...)
+			if err != nil {
+				return fmt.Errorf("failed to delete iptables rule %q: %v", rule.name, err)
+			}
+		}
+
+	}
+	return nil
+}
+
+// RFC 1918
+var privateNetworks = []string{
+	"10.0.0.0/8",     // A class private network
+	"172.16.0.0/12",  // B class private network
+	"192.168.0.0/16", // C class private network
+}
+
+type iptablesRulesManager struct {
+	ipt *iptables.IPTables
+
+	vpcCIDRs        []string
+	primaryIP       string
+	primayInterface string
+}
+
+func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRulesManager, error) {
+	ipt, err := iptables.New()
+	if err != nil {
+		return nil, err
+	}
+
+	return &iptablesRulesManager{
+		ipt:             ipt,
+		vpcCIDRs:        privateNetworks,
+		primaryIP:       primaryIP,
+		primayInterface: primaryInterface,
+	}, nil
+}
+
+func (m *iptablesRulesManager) updateRules() error {
+	snatRules, err := m.buildSNATRules()
+	if err != nil {
+		return err
+	}
+	err = updateIptablesRules(snatRules, m.ipt)
+	if err != nil {
+		return err
+	}
+
+	connmarkRules, err := m.buildConnmarkRules()
+	if err != nil {
+		return err
+	}
+	err = updateIptablesRules(connmarkRules, m.ipt)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
+	err := m.ensureChain("nat", snatChainName)
+	if err != nil {
+		return nil, err
+	}
+
+	rules := make([]iptablesRule, 0)
+
+	// build SNAT rules for outbound non-VPC traffic
+	rules = append(rules, iptablesRule{
+		name:        "first SNAT rules for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "POSTROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD SNAT CHAIN", "-j", snatChainName,
+		},
+	})
+
+	// Exclude VPC traffic from SNAT rule
+	for _, cidr := range m.vpcCIDRs {
 		rules = append(rules, iptablesRule{
-			name:  fmt.Sprintf("CONNMARK restore for %s", iface.Dev),
-			table: "mangle",
-			chain: "PREROUTING",
+			name:        "exclude vpc traffic",
+			shouldExist: true,
+			table:       "nat",
+			chain:       snatChainName,
 			rule: []string{
-				"-m", "comment",
-				"--comment", fmt.Sprintf("uk8s-cni-vpc: CONNMARK restore for %s", iface.Dev),
-				"-i", iface.Dev,
-				"-j", "CONNMARK",
-				"--restore-mark",
-				"--mask", fmt.Sprintf("%#x", defaultConnmark),
+				"-d", cidr, "-m", "comment", "--comment", "UCLOUD SNAT CHAIN", "-j", "RETURN",
 			},
 		})
 	}
 
-	for _, rule := range rules {
-		exists, err := ipt.Exists(rule.table, rule.chain, rule.rule...)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			ulog.Infof("Append iptables rule %q (table %s, chain %s): %v", rule.name, rule.table, rule.chain, rule.rule)
-			err = ipt.Append(rule.table, rule.chain, rule.rule...)
-			if err != nil {
-				return fmt.Errorf("failed to append iptables rule %q (table %s, chain %s): %v", rule.name, rule.table, rule.chain, err)
-			}
-		}
+	rules = append(rules, iptablesRule{
+		name:        "SNAT rule for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       snatChainName,
+		rule: []string{
+			"-o", "eth0",
+			"-m", "comment", "--comment", "UCLOUD SNAT",
+			"-m", "addrtype", "!", "--dst-type", "LOCAL",
+			"-j", "SNAT", "--to-source", m.primaryIP,
+		},
+	})
+
+	rules = append(rules, iptablesRule{
+		name:        "connmark for primary interface",
+		shouldExist: true,
+		table:       "mangle",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD primary UNI",
+			"-i", m.primayInterface,
+			"-m", "addrtype", "--dst-type", "LOCAL", "--limit-iface-in",
+			"-j", "CONNMARK", "--set-mark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+		},
+	})
+
+	rules = append(rules, iptablesRule{
+		name:        "connmark restore for veth",
+		shouldExist: true,
+		table:       "mangle",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD primary UNI",
+			"-i", "ucni+", "-j", "CONNMARK", "--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	})
+
+	return rules, nil
+}
+
+func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
+	err := m.ensureChain("nat", connmarkChainName)
+	if err != nil {
+		return nil, err
 	}
 
+	rules := make([]iptablesRule, 0)
+
+	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
+	// always true for packets traversing the nat table
+	rules = append(rules, iptablesRule{
+		name:        "connmark rule for non-VPC outbound traffic",
+		shouldExist: false,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
+			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
+		},
+	})
+	rules = append(rules, iptablesRule{
+		name:        "connmark rule for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
+			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
+		},
+	})
+
+	for _, cidr := range m.vpcCIDRs {
+		rules = append(rules, iptablesRule{
+			name:        connmarkChainName,
+			shouldExist: true,
+			table:       "nat",
+			chain:       connmarkChainName,
+			rule: []string{
+				"-d", cidr, "-m", "comment", "--comment", "UCLOUD CONNMARK CHAIN, VPC CIDR", "-j", "RETURN",
+			},
+		})
+	}
+
+	// Force delete existing restore mark rule so that the subsequent rule gets added to the end
+	rules = append(rules, iptablesRule{
+		name:        "connmark to fwmark copy",
+		shouldExist: false,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	})
+
+	// Being in the nat table, this only applies to the first packet of the connection. The mark
+	// will be restored in the mangle table for subsequent packets.
+	rules = append(rules, iptablesRule{
+		name:        "connmark to fwmark copy",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	})
+
+	rules = append(rules, iptablesRule{
+		name:        "connmark rule for external outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       connmarkChainName,
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+		},
+	})
+
+	return rules, nil
+}
+
+func (m *iptablesRulesManager) ensureChain(table, chain string) error {
+	err := m.ipt.NewChain(table, chain)
+	if err != nil {
+		if containChainExistErr(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to create iptables chain %s in table %s: %v", chain, table, err)
+	}
 	return nil
+}
+
+func containChainExistErr(err error) bool {
+	return strings.Contains(err.Error(), "Chain already exists")
 }
 
 func ensureConnmarkRule() error {
