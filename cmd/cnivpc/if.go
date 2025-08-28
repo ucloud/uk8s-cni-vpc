@@ -444,19 +444,7 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 
 	rules := make([]iptablesRule, 0)
 
-	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
-	// always true for packets traversing the nat table
-	rules = append(rules, iptablesRule{
-		name:        "connmark rule for non-VPC outbound traffic",
-		shouldExist: false,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
-			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
-		},
-	})
-	rules = append(rules, iptablesRule{
+	rule := iptablesRule{
 		name:        "connmark rule for non-VPC outbound traffic",
 		shouldExist: true,
 		table:       "nat",
@@ -465,7 +453,13 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
 			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
 		},
-	})
+	}
+	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
+	// always true for packets traversing the nat table
+	deleteRule := rule
+	deleteRule.shouldExist = false
+	rules = append(rules, deleteRule)
+	rules = append(rules, rule)
 
 	for _, cidr := range m.vpcCIDRs {
 		rules = append(rules, iptablesRule{
@@ -479,31 +473,6 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 		})
 	}
 
-	// Force delete existing restore mark rule so that the subsequent rule gets added to the end
-	rules = append(rules, iptablesRule{
-		name:        "connmark to fwmark copy",
-		shouldExist: false,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
-		},
-	})
-
-	// Being in the nat table, this only applies to the first packet of the connection. The mark
-	// will be restored in the mangle table for subsequent packets.
-	rules = append(rules, iptablesRule{
-		name:        "connmark to fwmark copy",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
-		},
-	})
-
 	rules = append(rules, iptablesRule{
 		name:        "connmark rule for external outbound traffic",
 		shouldExist: true,
@@ -514,6 +483,24 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 			"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
 		},
 	})
+
+	// Being in the nat table, this only applies to the first packet of the connection. The mark
+	// will be restored in the mangle table for subsequent packets.
+	rule = iptablesRule{
+		name:        "connmark to fwmark copy",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	}
+	// Force delete existing restore mark rule so that the subsequent rule gets added to the end
+	deleteRule = rule
+	deleteRule.shouldExist = false
+	rules = append(rules, deleteRule)
+	rules = append(rules, rule)
 
 	return rules, nil
 }
