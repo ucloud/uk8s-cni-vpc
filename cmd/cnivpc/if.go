@@ -47,13 +47,6 @@ const (
 	rpFilterLoose  = "2"
 )
 
-// RFC 1918
-var privateNetworks = []*net.IPNet{
-	mustParseCIDR("10.0.0.0/8"),     // A class private network
-	mustParseCIDR("172.16.0.0/12"),  // B class private network
-	mustParseCIDR("192.168.0.0/16"), // C class private network
-}
-
 func mustParseCIDR(cidr string) *net.IPNet {
 	_, network, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -111,18 +104,15 @@ func ensureSrcIPRoutePolicy(ip, ifname string) error {
 		}
 	}
 
-	for _, privateNet := range privateNetworks {
-		rule := netlink.NewRule()
-		rule.Priority = SrcRulePriority
-		rule.Table = tableId
-		rule.Src = netlink.NewIPNet(net.ParseIP(ip))
-		rule.Dst = privateNet
-		err = netlink.RuleAdd(rule)
-		if err != nil {
-			return fmt.Errorf("fail to add ip rule from %s to %s table %d: %v", ip, privateNet.String(), tableId, err)
-		}
-		ulog.Infof("Add ip rule from %s to %s table %d success", ip, privateNet.String(), tableId)
+	rule := netlink.NewRule()
+	rule.Priority = SrcRulePriority
+	rule.Table = tableId
+	rule.Src = netlink.NewIPNet(net.ParseIP(ip))
+	err = netlink.RuleAdd(rule)
+	if err != nil {
+		return fmt.Errorf("fail to add ip rule from %s table %d: %v", ip, tableId, err)
 	}
+	ulog.Infof("Add ip rule from %s table %d success", ip, tableId)
 
 	return nil
 }
