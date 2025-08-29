@@ -12,22 +12,22 @@ spec:
   template:
     metadata:
       labels:
-         app: "cni-vpc-node"
+        app: "cni-vpc-node"
     spec:
       tolerations:
-      - key: CriticalAddonsOnly
-        operator: Exists
-      - key: dedicated
-        operator: Exists
-      - effect: NoSchedule
-        key: node.cloudprovider.kubernetes.io/uninitialized
-        value: "true"
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: dedicated
+          operator: Exists
+        - effect: NoSchedule
+          key: node.cloudprovider.kubernetes.io/uninitialized
+          value: "true"
       hostNetwork: true
       priorityClassName: system-node-critical
       hostPID: true
       containers:
         - name: cni-vpc-node
-          image: uhub.service.ucloud.cn/wxyz/cni-vpc-node:dev-6713c85
+          image: uhub.service.ucloud.cn/wxyz/cni-vpc-node:dev-5e515ea
           securityContext:
             privileged: true
           imagePullPolicy: "Always"
