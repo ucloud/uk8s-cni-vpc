@@ -24,8 +24,6 @@ import (
 
 const cnivpcPath = "/opt/cni/net.d/10-cnivpc.conf"
 
-// DefaultMTU is the default MTU value when not specified in config
-const DefaultMTU = 1452
 
 // PortMapEntry corresponds to a single entry in the port_mappings argument,
 // see CONVENTIONS.md
@@ -45,7 +43,6 @@ type Plugin struct {
 	ConditionsV6         *[]string `json:"conditionsV6"`
 	MarkMasqBit          *int      `json:"markMasqBit"`
 	ExternalSetMarkChain *string   `json:"externalSetMarkChain"`
-	MTU                  int       `json:"mtu"`
 	RuntimeConfig        struct {
 		PortMaps []PortMapEntry `json:"portMappings,omitempty"`
 	} `json:"runtimeConfig,omitempty"`
@@ -61,10 +58,6 @@ func ParsePlugin(data []byte) (*Plugin, error) {
 	var cni Plugin
 	if err := json.Unmarshal(data, &cni); err != nil {
 		return nil, fmt.Errorf("failed to parse cnivpc config: %v", err)
-	}
-	// Set default MTU if not specified
-	if cni.MTU == 0 {
-		cni.MTU = DefaultMTU
 	}
 	return &cni, nil
 }

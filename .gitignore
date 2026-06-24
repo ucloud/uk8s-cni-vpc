@@ -11,3 +11,4 @@ bin
 .DS_Store
 out
 tmp
+.claude

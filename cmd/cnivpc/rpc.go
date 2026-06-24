@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -112,9 +113,21 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	return podnet, nil
 }
 
+// getMTUOrDefault returns the MTU of the given interface, falling back to defaultMtu on error.
+func getMTUOrDefault(dev string) int {
+	iface, err := net.InterfaceByName(dev)
+	if err != nil {
+		ulog.Warnf("Failed to get %s MTU, using default %d: %v", dev, defaultMtu, err)
+		return defaultMtu
+	}
+	mtu := iface.MTU
+	ulog.Infof("Using %s MTU: %d", dev, mtu)
+	return mtu
+}
+
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
-func assignPodIp(podName, podNS, netNS, sandboxId string, mtu int) (*rpc.PodNetwork, bool, error) {
+func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
 	kubeClient, err := kubeclient.GetNodeClient()
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
@@ -126,7 +139,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string, mtu int) (*rpc.PodNetw
 
 	var uni *vpc.NetworkInterface
 	if pnConfig != nil {
-		uni, err = initPodNetworking(pnConfig, mtu)
+		uni, err = initPodNetworking(pnConfig)
 		if err != nil {
 			return nil, false, err
 		}
@@ -241,7 +254,7 @@ func allocateSecondaryIP(uni *vpc.NetworkInterface, podName, podNS, sandboxID st
 	return &pn, nil
 }
 
-func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking, mtu int) (*vpc.NetworkInterface, error) {
+func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.NetworkInterface, error) {
 	client, err := uapi.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init uapi client: %v", err)
@@ -256,7 +269,7 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking, mtu int) (*
 		ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
 		return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
 	}
-	if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask, mtu); err != nil {
+	if err = ensureUNIPrimaryIPRoute(uni.PrivateIpSet[0], uni.MacAddress, uni.Gateway, uni.Netmask); err != nil {
 		return nil, err
 	}
 
