@@ -24,6 +24,7 @@ import (
 
 const cnivpcPath = "/opt/cni/net.d/10-cnivpc.conf"
 
+
 // PortMapEntry corresponds to a single entry in the port_mappings argument,
 // see CONVENTIONS.md
 type PortMapEntry struct {

@@ -123,7 +123,7 @@ var newIPTable = func(protocol iptables.Protocol) (iptable, error) {
 	return iptables.NewWithProtocol(protocol)
 }
 
-func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pn *rpc.PodNetwork) error {
+func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pn *rpc.PodNetwork, mtu int) error {
 	netns, err := ns.GetNS(netNS)
 	if err != nil {
 		ulog.Errorf("Open netns %q error: %v", netNS, err)
@@ -146,7 +146,7 @@ func setupPodVethNetwork(podName, podNS, netNS, sandBoxId, nic string, pn *rpc.P
 	}
 	hostVeth, _, err := setupVethPair(netns, os.Getenv("CNI_IFNAME"),
 		generateHostVethName(hostVethPrefix, podNS, podName),
-		defaultMtu, hostAddrs,
+		mtu, hostAddrs,
 		pn.VPCIP+"/32")
 	if err != nil {
 		ulog.Errorf("Setup vethpair between host and container error: %v", err)

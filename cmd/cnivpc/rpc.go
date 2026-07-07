@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -110,6 +111,18 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	}
 
 	return podnet, nil
+}
+
+// getMTUOrDefault returns the MTU of the given interface, falling back to defaultMtu on error.
+func getMTUOrDefault(dev string) int {
+	iface, err := net.InterfaceByName(dev)
+	if err != nil {
+		ulog.Warnf("Failed to get %s MTU, using default %d: %v", dev, defaultMtu, err)
+		return defaultMtu
+	}
+	mtu := iface.MTU
+	ulog.Infof("Using %s MTU: %d", dev, mtu)
+	return mtu
 }
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;

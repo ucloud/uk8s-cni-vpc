@@ -117,6 +117,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		masterInterface = iputils.GetMasterInterface()
 	}
 	ulog.Infof("pod %s/%s master interface: %s", podNS, podName, masterInterface)
+	mtu := getMTUOrDefault(masterInterface)
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
@@ -138,7 +139,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	// We need to setup vethpair to pod's network namespace
-	err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pn)
+	err = setupPodVethNetwork(podName, podNS, netNS, sandBoxId, masterInterface, pn, mtu)
 	if err != nil {
 		ulog.Errorf("Setup pod veth network error: %v", err)
 		rollbackReleaseIP()
