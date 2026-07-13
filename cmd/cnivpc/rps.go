@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -32,9 +33,9 @@ func ensureLinkRPS(linkName string) error {
 }
 
 func ensureLinkRPSWithCPUCount(linkName, netClassPath string, cpuCount int) error {
-	mask, supported := rpsCPUMask(cpuCount)
-	if !supported {
-		return errors.Errorf("cnivpc.ensureLinkRPS unsupported CPU count %d", cpuCount)
+	mask, valid := rpsCPUMask(cpuCount)
+	if !valid {
+		return errors.Errorf("cnivpc.ensureLinkRPS invalid CPU count %d", cpuCount)
 	}
 
 	pattern := filepath.Join(netClassPath, linkName, "queues", "rx-*", "rps_cpus")
@@ -64,24 +65,21 @@ func ensureLinkRPSWithCPUCount(linkName, netClassPath string, cpuCount int) erro
 }
 
 func rpsCPUMask(cpuCount int) (string, bool) {
-	switch cpuCount {
-	case 1:
-		return "1", true
-	case 2:
-		return "3", true
-	case 4:
-		return "f", true
-	case 8:
-		return "ff", true
-	case 16:
-		return "ffff", true
-	case 32:
-		return "ffffffff", true
-	case 64:
-		return "ffffffff,ffffffff", true
-	default:
+	if cpuCount <= 0 {
 		return "", false
 	}
+
+	// Linux cpumasks use comma-separated 32-bit groups, most significant first.
+	groups := make([]string, 0, (cpuCount-1)/32+1)
+	if remainder := cpuCount % 32; remainder != 0 {
+		mask := (uint64(1) << remainder) - 1
+		groups = append(groups, strconv.FormatUint(mask, 16))
+	}
+	for fullGroups := cpuCount / 32; fullGroups > 0; fullGroups-- {
+		groups = append(groups, "ffffffff")
+	}
+
+	return strings.Join(groups, ","), true
 }
 
 func normalizeRPSMask(mask string) string {

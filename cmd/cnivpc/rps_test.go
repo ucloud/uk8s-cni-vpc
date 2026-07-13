@@ -30,12 +30,20 @@ func TestRPSCPUMask(t *testing.T) {
 	}{
 		{name: "one CPU", cpuCount: 1, want: "1", supported: true},
 		{name: "two CPUs", cpuCount: 2, want: "3", supported: true},
+		{name: "three CPUs", cpuCount: 3, want: "7", supported: true},
 		{name: "four CPUs", cpuCount: 4, want: "f", supported: true},
 		{name: "eight CPUs", cpuCount: 8, want: "ff", supported: true},
 		{name: "sixteen CPUs", cpuCount: 16, want: "ffff", supported: true},
+		{name: "thirty one CPUs", cpuCount: 31, want: "7fffffff", supported: true},
 		{name: "thirty two CPUs", cpuCount: 32, want: "ffffffff", supported: true},
+		{name: "thirty three CPUs", cpuCount: 33, want: "1,ffffffff", supported: true},
+		{name: "thirty six CPUs", cpuCount: 36, want: "f,ffffffff", supported: true},
+		{name: "forty eight CPUs", cpuCount: 48, want: "ffff,ffffffff", supported: true},
 		{name: "sixty four CPUs", cpuCount: 64, want: "ffffffff,ffffffff", supported: true},
-		{name: "unsupported", cpuCount: 3},
+		{name: "sixty five CPUs", cpuCount: 65, want: "1,ffffffff,ffffffff", supported: true},
+		{name: "ninety six CPUs", cpuCount: 96, want: "ffffffff,ffffffff,ffffffff", supported: true},
+		{name: "zero CPUs", cpuCount: 0},
+		{name: "negative CPUs", cpuCount: -1},
 	}
 
 	for _, test := range tests {
@@ -48,8 +56,8 @@ func TestRPSCPUMask(t *testing.T) {
 	}
 }
 
-func TestEnsureLinkRPSRejectsUnsupportedCPUCount(t *testing.T) {
-	if err := ensureLinkRPSWithCPUCount("eth1", t.TempDir(), 3); err == nil {
+func TestEnsureLinkRPSRejectsInvalidCPUCount(t *testing.T) {
+	if err := ensureLinkRPSWithCPUCount("eth1", t.TempDir(), 0); err == nil {
 		t.Fatal("ensureLinkRPSWithCPUCount() error = nil, want error")
 	}
 }
@@ -97,18 +105,18 @@ func TestNormalizeRPSMask(t *testing.T) {
 	}
 }
 
-func TestEnsureLinkRPSConfiguresWhenRXQueuesMatchCPUs(t *testing.T) {
+func TestEnsureLinkRPSConfiguresNonPowerOfTwoCPUCount(t *testing.T) {
 	netClassPath := prepareRPSTestPaths(t, map[string]string{
 		"rx-0": "0",
 		"rx-1": "0",
 	})
 
-	if err := ensureLinkRPSWithCPUCount("eth1", netClassPath, 2); err != nil {
+	if err := ensureLinkRPSWithCPUCount("eth1", netClassPath, 3); err != nil {
 		t.Fatalf("ensureLinkRPSWithCPUCount() error = %v", err)
 	}
 
-	assertFileContent(t, filepath.Join(netClassPath, "eth1", "queues", "rx-0", "rps_cpus"), "3")
-	assertFileContent(t, filepath.Join(netClassPath, "eth1", "queues", "rx-1", "rps_cpus"), "3")
+	assertFileContent(t, filepath.Join(netClassPath, "eth1", "queues", "rx-0", "rps_cpus"), "7")
+	assertFileContent(t, filepath.Join(netClassPath, "eth1", "queues", "rx-1", "rps_cpus"), "7")
 }
 
 func TestEnsureLinkRPSReturnsErrorWithoutRXQueues(t *testing.T) {
