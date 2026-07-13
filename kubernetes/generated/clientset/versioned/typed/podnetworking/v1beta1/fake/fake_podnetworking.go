@@ -29,12 +29,12 @@ import (
 
 // FakePodNetworkings implements PodNetworkingInterface
 type FakePodNetworkings struct {
-	Fake *FakePodnetworkingV1beta1
+	Fake *FakeVpcV1beta1
 }
 
-var podnetworkingsResource = schema.GroupVersionResource{Group: "podnetworking.uk8s.com", Version: "v1beta1", Resource: "podnetworkings"}
+var podnetworkingsResource = schema.GroupVersionResource{Group: "vpc.uk8s.ucloud.cn", Version: "v1beta1", Resource: "podnetworkings"}
 
-var podnetworkingsKind = schema.GroupVersionKind{Group: "podnetworking.uk8s.com", Version: "v1beta1", Kind: "PodNetworking"}
+var podnetworkingsKind = schema.GroupVersionKind{Group: "vpc.uk8s.ucloud.cn", Version: "v1beta1", Kind: "PodNetworking"}
 
 // Get takes name of the podNetworking, and returns the corresponding podNetworking object, and an error if there is any.
 func (c *FakePodNetworkings) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.PodNetworking, err error) {

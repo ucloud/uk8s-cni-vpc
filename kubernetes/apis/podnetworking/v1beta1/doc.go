@@ -12,7 +12,7 @@
 // permissions and limitations under the License.
 
 // +k8s:deepcopy-gen=package
-// +groupName=podnetworking.uk8s.com
+// +groupName=vpc.uk8s.ucloud.cn
 
 // Package v1 is the v1 version of the API.
 package v1beta1 // import "github.com/ucloud/uk8s-cni-vpc/pkg/apis/podnetworking/v1beta1"

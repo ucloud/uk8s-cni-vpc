@@ -53,7 +53,7 @@ type podNetworkings struct {
 }
 
 // newPodNetworkings returns a PodNetworkings
-func newPodNetworkings(c *PodnetworkingV1beta1Client) *podNetworkings {
+func newPodNetworkings(c *VpcV1beta1Client) *podNetworkings {
 	return &podNetworkings{
 		client: c.RESTClient(),
 	}

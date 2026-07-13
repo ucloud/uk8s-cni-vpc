@@ -58,13 +58,13 @@ func NewFilteredPodNetworkingInformer(client versioned.Interface, resyncPeriod t
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodnetworkingV1beta1().PodNetworkings().List(context.TODO(), options)
+				return client.VpcV1beta1().PodNetworkings().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.PodnetworkingV1beta1().PodNetworkings().Watch(context.TODO(), options)
+				return client.VpcV1beta1().PodNetworkings().Watch(context.TODO(), options)
 			},
 		},
 		&podnetworkingv1beta1.PodNetworking{},

@@ -17,6 +17,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type SubnetAllocationStrategy string
+
+const (
+	// SubnetAllocationStrategySequential checks subnetIds in order and selects
+	// the first subnet with available IPs. It is the default strategy.
+	SubnetAllocationStrategySequential SubnetAllocationStrategy = "sequential"
+	// SubnetAllocationStrategyBalanced selects the subnet with the most
+	// available IPs.
+	SubnetAllocationStrategyBalanced SubnetAllocationStrategy = "balanced"
+)
+
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -32,8 +43,9 @@ type PodNetworking struct {
 
 // PodNetworkingSpec is the spec for a PodNetworking resource
 type PodNetworkingSpec struct {
-	SecurityGroupIds []string `json:"securityGroupIds"`
-	SubnetIds        []string `json:"subnetIds"`
+	SecurityGroupIds []string                 `json:"securityGroupIds"`
+	SubnetIds        []string                 `json:"subnetIds"`
+	Strategy         SubnetAllocationStrategy `json:"strategy,omitempty"`
 }
 
 // PodNetworkingSpec is the status for PodNetworking resource
