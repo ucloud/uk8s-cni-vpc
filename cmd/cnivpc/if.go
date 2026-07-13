@@ -134,6 +134,10 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		return err
 	}
 	linkName := link.Attrs().Name
+	if err := ensureLinkRPS(linkName); err != nil {
+		// RPS is a performance optimization and must not block pod networking.
+		ulog.Warnf("Ensure RPS for link %s error: %+v", linkName, err)
+	}
 	tableId, err := ifNameToTableId(linkName)
 	if err != nil {
 		return fmt.Errorf("cannot convert link name %s to number: %v", linkName, err)
