@@ -37,7 +37,6 @@ import (
 
 const (
 	hostVethPrefix = "ucni"
-	defaultMtu     = 1452
 )
 
 var ErrIPConflict = errors.New("allocated IP is conflict with existing IP")

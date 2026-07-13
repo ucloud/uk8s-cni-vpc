@@ -157,13 +157,6 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		}
 	}
 
-	// Modify MTU:
-	// ip link set dev eth1 mtu 1452
-	err = netlink.LinkSetMTU(link, defaultMtu)
-	if err != nil {
-		ulog.Errorf("Modify mtu for link %v error: %v", linkName, err)
-		return err
-	}
 	h, _ := net.IPMask(net.ParseIP(netmask).To4()).Size()
 	addr, err := netlink.ParseAddr(primaryIP + "/" + fmt.Sprintf("%d", h))
 	if err != nil {

@@ -117,7 +117,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 		masterInterface = iputils.GetMasterInterface()
 	}
 	ulog.Infof("pod %s/%s master interface: %s", podNS, podName, masterInterface)
-	mtu := getMTUOrDefault(masterInterface)
+	mface, err := net.InterfaceByName(masterInterface)
+	if err != nil {
+		ulog.Errorf("Get MTU for %s error: %v", masterInterface, err)
+		rollbackReleaseIP()
+		return fmt.Errorf("failed to get interface MTU: %v", err)
+	}
+	mtu := mface.MTU
+	ulog.Infof("pod %s/%s mtu: %d", podNS, podName, mtu)
 	if !fromIpam {
 		err = ensureProxyArp(masterInterface)
 		if err != nil {
