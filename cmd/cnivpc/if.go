@@ -157,11 +157,23 @@ func ensureUNIPrimaryIPRoute(primaryIP, mac, gateway, netmask string) error {
 		}
 	}
 
+	// Sync MTU from master interface (eth0) to this UNI interface
+	masterName := iputils.GetMasterInterface()
+	masterIface, err := net.InterfaceByName(masterName)
+	if err != nil {
+		return fmt.Errorf("get master interface %s MTU error: %v", masterName, err)
+	}
+	if err = netlink.LinkSetMTU(link, masterIface.MTU); err != nil {
+		return fmt.Errorf("set MTU %d on %s error: %v", masterIface.MTU, linkName, err)
+	}
+	ulog.Infof("Set %s MTU to %d (from %s)", linkName, masterIface.MTU, masterName)
+
 	h, _ := net.IPMask(net.ParseIP(netmask).To4()).Size()
 	addr, err := netlink.ParseAddr(primaryIP + "/" + fmt.Sprintf("%d", h))
 	if err != nil {
 		return fmt.Errorf("parse addr %s failed, %v", primaryIP, err)
 	}
+
 	// Assign primary ip to interface
 	// ip addr replace 10.0.2.51/24 dev eth1
 	err = netlink.AddrReplace(link, addr)
