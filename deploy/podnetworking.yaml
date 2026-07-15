@@ -27,6 +27,12 @@ spec:
                   type: array
                   items:
                     type: string
+                strategy:
+                  type: string
+                  default: sequential
+                  enum:
+                    - sequential
+                    - balanced
             status:
               type: object
               properties:

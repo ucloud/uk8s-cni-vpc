@@ -172,7 +172,7 @@ type SharedInformerFactory interface {
 	WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
 
 	Ipamd() ipamd.Interface
-	Podnetworking() podnetworking.Interface
+	Vpc() podnetworking.Interface
 	Vipcontroller() vipcontroller.Interface
 }
 
@@ -180,7 +180,7 @@ func (f *sharedInformerFactory) Ipamd() ipamd.Interface {
 	return ipamd.New(f, f.namespace, f.tweakListOptions)
 }
 
-func (f *sharedInformerFactory) Podnetworking() podnetworking.Interface {
+func (f *sharedInformerFactory) Vpc() podnetworking.Interface {
 	return podnetworking.New(f, f.namespace, f.tweakListOptions)
 }
 

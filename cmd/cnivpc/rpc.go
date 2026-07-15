@@ -14,10 +14,12 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,6 +49,11 @@ const (
 	UAPIErrorIPNotExst       = 58221
 	DefaultPodNetworkingName = "default"
 )
+
+type subnetAvailableIP struct {
+	id           string
+	availableIPs int
+}
 
 // Get local bolt db storage for cni-vpc-network
 func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.PodNetwork], error) {
@@ -88,7 +95,7 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	if err != nil {
 		return nil, fmt.Errorf("failed to get crd kube client: %v", err)
 	}
-	podnet, err := crdClient.PodnetworkingV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
+	podnet, err := crdClient.VpcV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
 	if err != nil {
 		// 当指定了自定义的 podnetworking 且无法查到时，也要阻塞 pod 创建
 		if k8serr.IsNotFound(err) && pnName == DefaultPodNetworkingName {
@@ -264,7 +271,7 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 		return nil, fmt.Errorf("failed to init vpc client: %v", err)
 	}
 
-	uni, err := ensureSubnetUNI(vpccli, client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds)
+	uni, err := ensureSubnetUNI(vpccli, client.VPCID(), client.InstanceID(), pnConfig.Spec.SubnetIds, pnConfig.Spec.SecurityGroupIds, pnConfig.Spec.Strategy)
 	if err != nil {
 		ulog.Errorf("Failed to create or attach UNI to %s: %v", client.InstanceID(), err)
 		return nil, fmt.Errorf("failed to ensure UNI attached: %v", err)
@@ -302,7 +309,8 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 	return uni, nil
 }
 
-func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds, secGroupIds []string) (uni *vpc.NetworkInterface, err error) {
+func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds, secGroupIds []string, strategy podnetworkingv1beta1.SubnetAllocationStrategy) (uni *vpc.NetworkInterface, err error) {
+
 	meta, err := uapi.GetMeta()
 	if err != nil {
 		return nil, fmt.Errorf("get metadata error: %v", err)
@@ -315,25 +323,37 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds,
 		}
 	}()
 
-	ulog.Infof("Begin to check subnets: %v", subnetIds)
-	var subnetId string
-	for _, candicateSubnetId := range subnetIds {
-		remains, err := checkSubnetRemainsIP(vpccli, vpcId, candicateSubnetId)
+	ulog.Infof("Scheduling subnet allocation with strategy %q, candidate subnets: %v", strategy, subnetIds)
+	availableSubnets := make([]subnetAvailableIP, 0, len(subnetIds))
+	for _, candidateSubnetId := range subnetIds {
+		availableIPs, err := getSubnetAvailableIPs(vpccli, vpcId, candidateSubnetId)
 		if err != nil {
-			ulog.Warnf("Check subnet %s remains ip error: %v, skip", candicateSubnetId, err)
+			ulog.Warnf("Check subnet %s remains ip error: %v, skip", candidateSubnetId, err)
 			continue
 		}
-		if !remains {
-			ulog.Warnf("Subnet %s has no available ip, skip", candicateSubnetId)
+		if availableIPs <= 0 {
+			ulog.Warnf("Subnet %s has no available ip, skip", candidateSubnetId)
 			continue
 		}
-		subnetId = candicateSubnetId
-		break
+		availableSubnets = append(availableSubnets, subnetAvailableIP{
+			id:           candidateSubnetId,
+			availableIPs: availableIPs,
+		})
 	}
-	if subnetId == "" {
+
+	ulog.Infof("Subnet allocation strategy %q checked %d/%d subnets, available ip snapshot: %s",
+		strategy, len(availableSubnets), len(subnetIds), formatSubnetAvailableIPs(availableSubnets))
+
+	selectedSubnet, ok, err := selectSubnetByAllocationStrategy(strategy, availableSubnets)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, fmt.Errorf("no available subnet in %v", subnetIds)
 	}
-	ulog.Infof("Selected subnet %s", subnetId)
+	subnetId := selectedSubnet.id
+	ulog.Infof("Subnet allocation strategy %q selected subnet %s with %d available ips",
+		strategy, subnetId, selectedSubnet.availableIPs)
 
 	for _, netIf := range meta.UHost.NetworkInterfaces {
 		if netIf.SubnetId == subnetId && !netIf.Default {
@@ -479,7 +499,7 @@ func describeNetworkInterface(vpccli *vpc.VPCClient, interfaceId string) (*vpc.N
 	return &resp.NetworkInterfaceSet[0], nil
 }
 
-func checkSubnetRemainsIP(vpccli *vpc.VPCClient, vpc, subnet string) (bool, error) {
+func getSubnetAvailableIPs(vpccli *vpc.VPCClient, vpc, subnet string) (int, error) {
 	req := vpccli.NewDescribeSubnetRequest()
 	req.ShowAvailableIPs = ucloud.Bool(true)
 	req.SubnetId = ucloud.String(subnet)
@@ -487,15 +507,61 @@ func checkSubnetRemainsIP(vpccli *vpc.VPCClient, vpc, subnet string) (bool, erro
 
 	resp, err := vpccli.DescribeSubnet(req)
 	if err != nil {
-		return false, fmt.Errorf("DescribeSubnet from unetwork api service error: %v", err)
+		return 0, fmt.Errorf("DescribeSubnet from unetwork api service error: %v", err)
 	}
 
 	if len(resp.DataSet) == 0 {
-		return false, fmt.Errorf("DescribeSubnet %s returned empty DataSet", subnet)
+		return 0, fmt.Errorf("DescribeSubnet %s returned empty DataSet", subnet)
 	}
 
 	subnetInfo := resp.DataSet[0]
-	return subnetInfo.AvailableIPs > 0, nil
+	return subnetInfo.AvailableIPs, nil
+}
+
+func validateSubnetAllocationStrategy(strategy podnetworkingv1beta1.SubnetAllocationStrategy) error {
+	switch strategy {
+	case "",
+		podnetworkingv1beta1.SubnetAllocationStrategySequential,
+		podnetworkingv1beta1.SubnetAllocationStrategyBalanced:
+		return nil
+	default:
+		return fmt.Errorf("invalid podnetworking subnet allocation strategy %q", strategy)
+	}
+}
+
+// the subnets are already filtered by availableIPs > 0
+func selectSubnetByAllocationStrategy(strategy podnetworkingv1beta1.SubnetAllocationStrategy, subnets []subnetAvailableIP) (subnetAvailableIP, bool, error) {
+	if err := validateSubnetAllocationStrategy(strategy); err != nil {
+		return subnetAvailableIP{}, false, err
+	}
+
+	if len(subnets) == 0 {
+		return subnetAvailableIP{}, false, nil
+	}
+
+	switch strategy {
+	case "", podnetworkingv1beta1.SubnetAllocationStrategySequential:
+		return subnets[0], true, nil
+	case podnetworkingv1beta1.SubnetAllocationStrategyBalanced:
+		selected := slices.MaxFunc(subnets, func(a, b subnetAvailableIP) int {
+			return cmp.Compare(a.availableIPs, b.availableIPs)
+		})
+		return selected, true, nil
+	default:
+		return subnets[0], true, nil
+	}
+}
+
+func formatSubnetAvailableIPs(subnets []subnetAvailableIP) string {
+	if len(subnets) == 0 {
+		return "none"
+	}
+
+	snapshot := make([]string, 0, len(subnets))
+	for _, subnet := range subnets {
+		snapshot = append(snapshot, fmt.Sprintf("%s=%d", subnet.id, subnet.availableIPs))
+	}
+	return strings.Join(snapshot, ", ")
 }
 
 func checkSecondaryIPExist(ip, mac, subnet string) (bool, error) {

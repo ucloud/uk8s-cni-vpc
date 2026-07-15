@@ -55,13 +55,13 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	case v1beta1.SchemeGroupVersion.WithResource("ipamds"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Ipamd().V1beta1().Ipamds().Informer()}, nil
 
-		// Group=podnetworking.uk8s.com, Version=v1beta1
-	case podnetworkingv1beta1.SchemeGroupVersion.WithResource("podnetworkings"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Podnetworking().V1beta1().PodNetworkings().Informer()}, nil
-
 		// Group=vipcontroller.uk8s.com, Version=v1beta1
 	case vipcontrollerv1beta1.SchemeGroupVersion.WithResource("vpcipclaims"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Vipcontroller().V1beta1().VpcIpClaims().Informer()}, nil
+
+		// Group=vpc.uk8s.ucloud.cn, Version=v1beta1
+	case podnetworkingv1beta1.SchemeGroupVersion.WithResource("podnetworkings"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Vpc().V1beta1().PodNetworkings().Informer()}, nil
 
 	}
 

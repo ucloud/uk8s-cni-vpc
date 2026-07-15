@@ -17,7 +17,7 @@ package scheme
 
 import (
 	ipamdv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/ipamd/v1beta1"
-	podnetworkingv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
+	vpcv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/podnetworking/v1beta1"
 	vipcontrollerv1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -31,7 +31,7 @@ var Codecs = serializer.NewCodecFactory(Scheme)
 var ParameterCodec = runtime.NewParameterCodec(Scheme)
 var localSchemeBuilder = runtime.SchemeBuilder{
 	ipamdv1beta1.AddToScheme,
-	podnetworkingv1beta1.AddToScheme,
+	vpcv1beta1.AddToScheme,
 	vipcontrollerv1beta1.AddToScheme,
 }
 
