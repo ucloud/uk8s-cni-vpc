@@ -534,23 +534,20 @@ func selectSubnetByAllocationStrategy(strategy podnetworkingv1beta1.SubnetAlloca
 		return subnetAvailableIP{}, false, err
 	}
 
-	availableIndex := slices.IndexFunc(subnets, func(subnet subnetAvailableIP) bool {
-		return subnet.availableIPs > 0
-	})
-	if availableIndex == -1 {
+	if len(subnets) == 0 {
 		return subnetAvailableIP{}, false, nil
 	}
 
 	switch strategy {
 	case "", podnetworkingv1beta1.SubnetAllocationStrategySequential:
-		return subnets[availableIndex], true, nil
+		return subnets[0], true, nil
 	case podnetworkingv1beta1.SubnetAllocationStrategyBalanced:
-		selected := slices.MaxFunc(subnets[availableIndex:], func(a, b subnetAvailableIP) int {
+		selected := slices.MaxFunc(subnets, func(a, b subnetAvailableIP) int {
 			return cmp.Compare(a.availableIPs, b.availableIPs)
 		})
 		return selected, true, nil
 	default:
-		return subnets[availableIndex], true, nil
+		return subnets[0], true, nil
 	}
 }
 
