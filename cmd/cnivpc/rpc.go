@@ -331,14 +331,14 @@ func ensureSubnetUNI(vpccli *vpc.VPCClient, vpcId, instanceId string, subnetIds,
 			ulog.Warnf("Check subnet %s remains ip error: %v, skip", candidateSubnetId, err)
 			continue
 		}
-		availableSubnets = append(availableSubnets, subnetAvailableIP{
-			id:           candidateSubnetId,
-			availableIPs: availableIPs,
-		})
 		if availableIPs <= 0 {
 			ulog.Warnf("Subnet %s has no available ip, skip", candidateSubnetId)
 			continue
 		}
+		availableSubnets = append(availableSubnets, subnetAvailableIP{
+			id:           candidateSubnetId,
+			availableIPs: availableIPs,
+		})
 	}
 
 	ulog.Infof("Subnet allocation strategy %q checked %d/%d subnets, available ip snapshot: %s",
