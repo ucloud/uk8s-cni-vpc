@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Oudwins/zog"
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/request"
@@ -520,28 +519,19 @@ func getSubnetAvailableIPs(vpccli *vpc.VPCClient, vpc, subnet string) (int, erro
 }
 
 func validateSubnetAllocationStrategy(strategy podnetworkingv1beta1.SubnetAllocationStrategy) error {
-	issues := zog.StringLike[podnetworkingv1beta1.SubnetAllocationStrategy]().
-		Default(podnetworkingv1beta1.SubnetAllocationStrategySequential).
-		OneOf([]podnetworkingv1beta1.SubnetAllocationStrategy{
-			podnetworkingv1beta1.SubnetAllocationStrategySequential,
-			podnetworkingv1beta1.SubnetAllocationStrategyBalanced,
-		}).Validate(&strategy)
-
-	if len(issues) == 0 {
+	switch strategy {
+	case "",
+		podnetworkingv1beta1.SubnetAllocationStrategySequential,
+		podnetworkingv1beta1.SubnetAllocationStrategyBalanced:
 		return nil
+	default:
+		return fmt.Errorf("invalid podnetworking subnet allocation strategy %q", strategy)
 	}
-	defer zog.Issues.Collect(issues)
-
-	validationErrors := make([]error, 0, len(issues))
-	for _, issue := range issues {
-		validationErrors = append(validationErrors, errors.New(issue.Message))
-	}
-	return fmt.Errorf("invalid podnetworking subnet allocation strategy %q: %w", strategy, errors.Join(validationErrors...))
 }
 
 func selectSubnetByAllocationStrategy(strategy podnetworkingv1beta1.SubnetAllocationStrategy, subnets []subnetAvailableIP) (subnetAvailableIP, bool, error) {
 	if err := validateSubnetAllocationStrategy(strategy); err != nil {
-		ulog.Warnf("Invalid subnet allocation strategy %q, using sequential strategy", strategy)
+		return subnetAvailableIP{}, false, err
 	}
 
 	availableIndex := slices.IndexFunc(subnets, func(subnet subnetAvailableIP) bool {
