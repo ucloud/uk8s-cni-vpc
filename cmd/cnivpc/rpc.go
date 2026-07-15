@@ -529,6 +529,7 @@ func validateSubnetAllocationStrategy(strategy podnetworkingv1beta1.SubnetAlloca
 	}
 }
 
+// the subnets are already filtered by availableIPs > 0
 func selectSubnetByAllocationStrategy(strategy podnetworkingv1beta1.SubnetAllocationStrategy, subnets []subnetAvailableIP) (subnetAvailableIP, bool, error) {
 	if err := validateSubnetAllocationStrategy(strategy); err != nil {
 		return subnetAvailableIP{}, false, err
