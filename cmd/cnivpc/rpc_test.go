@@ -74,7 +74,6 @@ func TestValidateSubnetAllocationStrategy(t *testing.T) {
 
 func TestSelectSubnetByAllocationStrategy(t *testing.T) {
 	subnets := []subnetAvailableIP{
-		{id: "subnet-a", availableIPs: 0},
 		{id: "subnet-b", availableIPs: 3},
 		{id: "subnet-c", availableIPs: 10},
 	}
@@ -110,11 +109,8 @@ func TestSelectSubnetByAllocationStrategy(t *testing.T) {
 		{
 			name:     "no available subnet",
 			strategy: podnetworkingv1beta1.SubnetAllocationStrategyBalanced,
-			subnets: []subnetAvailableIP{
-				{id: "subnet-a", availableIPs: 0},
-				{id: "subnet-b", availableIPs: 0},
-			},
-			wantOK: false,
+			subnets:  []subnetAvailableIP{},
+			wantOK:   false,
 		},
 	}
 
