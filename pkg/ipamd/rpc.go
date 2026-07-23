@@ -16,7 +16,12 @@ package ipamd
 import (
 	"context"
 	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -25,8 +30,64 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const (
+	cniBinaryPath    = "/opt/cni/bin/cnivpc"
+	cniVersionPrefix = "ucloud-uk8s-cnivpc version "
+)
+
 func (s *ipamServer) Ping(ctx context.Context, req *rpc.PingRequest) (*rpc.PingResponse, error) {
 	return &rpc.PingResponse{}, nil
+}
+
+func (s *ipamServer) GetCNIVersion(ctx context.Context, req *rpc.GetCNIVersionRequest) (*rpc.GetCNIVersionResponse, error) {
+	return getCNIVersionAtPath(ctx, cniBinaryPath)
+}
+
+func getCNIVersionAtPath(ctx context.Context, path string) (*rpc.GetCNIVersionResponse, error) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		err = errors.Wrapf(err, "ipamd.getCNIVersionAtPath stat %s", errors.Safe(path))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, getCNIVersionStatusError(codes.NotFound, err)
+		}
+		return nil, getCNIVersionStatusError(codes.Internal, err)
+	}
+
+	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if err != nil {
+		err = errors.Wrapf(err, "ipamd.getCNIVersionAtPath execute %s", errors.Safe(path))
+		if ctx.Err() != nil {
+			return nil, getCNIVersionStatusError(status.FromContextError(ctx.Err()).Code(), err)
+		}
+		return nil, getCNIVersionStatusError(codes.Internal, err)
+	}
+
+	cniVersion, err := parseCNIVersion(string(output))
+	if err != nil {
+		return nil, getCNIVersionStatusError(codes.Internal, err)
+	}
+
+	return &rpc.GetCNIVersionResponse{
+		Code:    rpc.CNIErrorCode_CNISuccess,
+		Version: cniVersion,
+		Path:    path,
+		Size:    fileInfo.Size(),
+		ModTime: fileInfo.ModTime().Unix(),
+	}, nil
+}
+
+func getCNIVersionStatusError(code codes.Code, err error) error {
+	ulog.Errorf("Get CNI version error: %+v", err)
+	return status.Error(code, err.Error())
+}
+
+func parseCNIVersion(output string) (string, error) {
+	output = strings.TrimSpace(output)
+	cniVersion, found := strings.CutPrefix(output, cniVersionPrefix)
+	if !found || strings.TrimSpace(cniVersion) == "" {
+		return "", errors.Errorf("ipamd.parseCNIVersion unexpected output %q", errors.Safe(output))
+	}
+	return strings.TrimSpace(cniVersion), nil
 }
 
 func (s *ipamServer) AddPodNetwork(ctx context.Context, req *rpc.AddPodNetworkRequest) (*rpc.AddPodNetworkResponse, error) {

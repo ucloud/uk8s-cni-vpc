@@ -18,7 +18,7 @@ rules:
   verbs: ["get","list", "patch"]
 - apiGroups: [""]
   resources: ["nodes"]
-  verbs: ["get"]
+  verbs: ["get", "list"]
 - apiGroups: ["vpc.uk8s.ucloud.cn"]
   resources: ["vpcipclaims", "ipamds"]
   verbs: ["get", "create","delete","update","list"]
@@ -68,7 +68,7 @@ spec:
       hostPID: true
       containers:
         - name: cni-vpc-ipamd
-          image: uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:1.2.0
+          image: uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:2.0.1
           resources:
             limits:
               cpu: 200m

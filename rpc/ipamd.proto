@@ -5,6 +5,7 @@ option go_package = "./;rpc";
 
 service CNIIpam {
   rpc Ping (PingRequest) returns (PingResponse) {}
+  rpc GetCNIVersion (GetCNIVersionRequest) returns (GetCNIVersionResponse) {}
   rpc AddPodNetwork (AddPodNetworkRequest) returns (AddPodNetworkResponse) {}
   rpc DelPodNetwork (DelPodNetworkRequest) returns (DelPodNetworkResponse) {}
   rpc AddPodNetworkRecord (AddPodNetworkRecordRequest) returns (AddPodNetworkRecordResponse) {}
@@ -117,6 +118,17 @@ message SupportMultiSubnetRequest {}
 message SupportMultiSubnetResponse {
   CNIErrorCode Code = 1;
   bool Support = 2;
+}
+
+message GetCNIVersionRequest {}
+
+message GetCNIVersionResponse {
+  CNIErrorCode Code = 1;
+  string Version = 2;
+  string Path = 3;
+  int64 Size = 4;
+  // Unix timestamp in seconds.
+  int64 ModTime = 5;
 }
 
 enum CNIErrorCode {
