@@ -75,7 +75,7 @@ spec:
               mountPath: /opt/cni/
       containers:
         - name: cni-vpc-ipamd
-          image: uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:2.0.1
+          image: uhub.service.ucloud.cn/andrew/cni-vpc-ipamd:2.0.5-rc2
           resources:
             limits:
               cpu: 200m
