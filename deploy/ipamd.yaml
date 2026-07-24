@@ -70,6 +70,9 @@ spec:
         - name: cnivpc-init
           image: uhub.service.ucloud.cn/andrew/cni-vpc-init:2.0.5-rc2
           imagePullPolicy: IfNotPresent
+          env:
+            - name: CNI_INIT_OVERWRITE
+              value: "true"
           volumeMounts:
             - name: host-cni
               mountPath: /opt/cni/
