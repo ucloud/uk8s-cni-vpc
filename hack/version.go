@@ -15,19 +15,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/ucloud/uk8s-cni-vpc/rpc"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
+type versionResponse struct {
+	Version string `json:"version"`
+}
+
 func main() {
-	addr := flag.String("addr", "127.0.0.1:7312", "IPAMD gRPC TCP address")
+	addr := flag.String("addr", "127.0.0.1:7313", "IPAMD local version HTTP address")
 	expected := flag.String("expected", "", "expected CNI version")
 	flag.Parse()
 
@@ -41,35 +44,33 @@ func queryVersion(addr, expected string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	conn, err := grpc.DialContext(
-		ctx,
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-	)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/version", nil)
 	if err != nil {
-		return errors.Wrapf(err, "main.queryVersion dial %s", addr)
+		return errors.Wrap(err, "main.queryVersion create request")
 	}
-	defer conn.Close()
-
-	client := rpc.NewCNIIpamClient(conn)
-	response, err := client.GetCNIVersion(ctx, &rpc.GetCNIVersionRequest{})
+	response, err := http.DefaultClient.Do(request)
 	if err != nil {
-		return errors.Wrap(err, "main.queryVersion call GetCNIVersion")
+		return errors.Wrapf(err, "main.queryVersion GET http://%s/version", addr)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return errors.Errorf("main.queryVersion unexpected HTTP status %s", errors.Safe(response.Status))
 	}
 
-	fmt.Printf(
-		"version=%s path=%s size=%d mod_time=%s\n",
-		response.GetVersion(),
-		response.GetPath(),
-		response.GetSize(),
-		time.Unix(response.GetModTime(), 0).Format(time.RFC3339),
-	)
+	var result versionResponse
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		return errors.Wrap(err, "main.queryVersion decode response")
+	}
+	if result.Version == "" {
+		return errors.New("main.queryVersion response has an empty version")
+	}
 
-	if expected != "" && response.GetVersion() != expected {
+	fmt.Printf("version=%s\n", result.Version)
+
+	if expected != "" && result.Version != expected {
 		return errors.Errorf(
 			"main.queryVersion got version %s, expected %s",
-			errors.Safe(response.GetVersion()),
+			errors.Safe(result.Version),
 			errors.Safe(expected),
 		)
 	}

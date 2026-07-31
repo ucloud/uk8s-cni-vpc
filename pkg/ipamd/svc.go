@@ -14,13 +14,17 @@
 package ipamd
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/cockroachdb/errors"
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
@@ -110,6 +114,13 @@ func Start() error {
 		nodeName: os.Getenv("KUBE_NODE_NAME"),
 	}
 	ipd.initServer()
+	versionCtx, cancelVersionLoad := context.WithTimeout(context.Background(), versionLoadTimeout)
+	cniVersion, versionErr := loadCNIVersion(versionCtx, cniBinaryPath)
+	cancelVersionLoad()
+	if versionErr != nil {
+		ulog.Errorf("Load CNI version error; local version endpoint will return 503: %+v", versionErr)
+	}
+	versionServer := newVersionHTTPServer(cniVersion, versionErr)
 	err = ipd.migrateV1BoltDB()
 	if err != nil {
 		return fmt.Errorf("failed to migrate v1 bolt db: %v", err)
@@ -117,8 +128,6 @@ func Start() error {
 	// Enable telemetry
 	rpc.RegisterCNIIpamServer(server, ipd)
 	ulog.Infof("Start ipamd on node %v %v, kubernetes version: %v", os.Getenv("KUBE_NODE_NAME"), ipd.hostId, ipd.k8sVersion)
-
-	go cleanUpOnTermination(server, ipd)
 
 	if pathExist(IpamdServiceSocket) {
 		os.Remove(IpamdServiceSocket)
@@ -150,21 +159,33 @@ func Start() error {
 	if err != nil {
 		ulog.Fatalf("listen tcp: %v", err)
 	}
+	versionListener, err := net.Listen("tcp4", versionServer.Addr)
+	if err != nil {
+		ulog.Errorf("Listen CNI version server error; local version endpoint is disabled: %+v", err)
+	}
 
-	errChan := make(chan error)
+	go cleanUpOnTermination(server, versionServer, ipd)
+
+	errChan := make(chan error, 2)
 	go func() {
 		ulog.Infof("Start to serve socket: %s", IpamdServiceSocket)
-		err = server.Serve(socketListenr)
-		errChan <- err
+		errChan <- errors.Wrap(server.Serve(socketListenr), "ipamd.Start serve socket")
 	}()
 	go func() {
 		ulog.Infof("Start to serve tcp: %s", ipd.tcpAddr)
-		err = server.Serve(tcpListener)
-		errChan <- err
+		errChan <- errors.Wrap(server.Serve(tcpListener), "ipamd.Start serve tcp")
 	}()
+	if versionListener != nil {
+		go func() {
+			ulog.Infof("Start to serve CNI version: http://%s%s", versionServer.Addr, versionEndpointPath)
+			if err := versionServer.Serve(versionListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				ulog.Errorf("Serve CNI version error; core IPAMD services remain available: %+v", err)
+			}
+		}()
+	}
 
 	err = <-errChan
-	return fmt.Errorf("failed to server: %v", err)
+	return errors.Wrap(err, "ipamd.Start server stopped")
 }
 
 func (s *ipamServer) initServer() {
@@ -287,12 +308,18 @@ func (s *ipamServer) migrateV1BoltDB() error {
 
 // Remove socket file on my termination.
 // Remove any pre-allocated secondary vpc ip.
-func cleanUpOnTermination(s *grpc.Server, ipd *ipamServer) {
+func cleanUpOnTermination(s *grpc.Server, versionServer *http.Server, ipd *ipamServer) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	ulog.Infof("Receive signal %+v, will stop myself gracefully", sig)
 	chanStopLoop <- true
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := versionServer.Shutdown(shutdownCtx); err != nil {
+		ulog.Errorf("Stop CNI version server error: %+v", err)
+	}
+	cancel()
 
 	err := ipd.dbHandler.Close()
 	if err != nil {
