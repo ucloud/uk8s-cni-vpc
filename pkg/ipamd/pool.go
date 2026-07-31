@@ -583,6 +583,7 @@ func (s *ipamServer) lendIP(req *rpc.BorrowIPRequest) (*rpc.PodNetwork, error) {
 		s.putIpToPool(pn)
 		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
 	}
+	pn.MacAddress = req.MacAddress
 	return pn, nil
 }
 
