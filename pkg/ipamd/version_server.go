@@ -28,7 +28,7 @@ import (
 const (
 	cniBinaryPath            = "/opt/cni/bin/cnivpc"
 	cniVersionPrefix         = "ucloud-uk8s-cnivpc version "
-	versionListenAddress     = "127.0.0.1:7313"
+	versionListenAddress     = "0.0.0.0:7313"
 	versionEndpointPath      = "/version"
 	nodeLogPath              = "/host/var/log/cnivpc.log"
 	logTailEndpointPath      = "/logs/tail"

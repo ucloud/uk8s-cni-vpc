@@ -161,7 +161,7 @@ func Start() error {
 	}
 	versionListener, err := net.Listen("tcp4", versionServer.Addr)
 	if err != nil {
-		ulog.Errorf("Listen local HTTP server error; version and log endpoints are disabled: %+v", err)
+		ulog.Errorf("Listen IPAMD HTTP server error; version and log endpoints are disabled: %+v", err)
 	}
 
 	go cleanUpOnTermination(server, versionServer, ipd)
@@ -178,14 +178,14 @@ func Start() error {
 	if versionListener != nil {
 		go func() {
 			ulog.Infof(
-				"Start local HTTP endpoints: http://%s%s, http://%s%s",
+				"Start IPAMD HTTP endpoints: http://%s%s, http://%s%s",
 				versionServer.Addr,
 				versionEndpointPath,
 				versionServer.Addr,
 				logTailEndpointPath,
 			)
 			if err := versionServer.Serve(versionListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				ulog.Errorf("Serve local HTTP error; core IPAMD services remain available: %+v", err)
+				ulog.Errorf("Serve IPAMD HTTP error; core services remain available: %+v", err)
 			}
 		}()
 	}
@@ -323,7 +323,7 @@ func cleanUpOnTermination(s *grpc.Server, versionServer *http.Server, ipd *ipamS
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := versionServer.Shutdown(shutdownCtx); err != nil {
-		ulog.Errorf("Stop local HTTP server error: %+v", err)
+		ulog.Errorf("Stop IPAMD HTTP server error: %+v", err)
 	}
 	cancel()
 
