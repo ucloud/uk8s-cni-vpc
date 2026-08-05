@@ -30,9 +30,10 @@ const (
 	cniVersionPrefix         = "ucloud-uk8s-cnivpc version "
 	versionListenAddress     = "127.0.0.1:7313"
 	versionEndpointPath      = "/version"
+	nodeLogPath              = "/host/var/log/cnivpc.log"
+	logTailEndpointPath      = "/logs/tail"
 	versionLoadTimeout       = 5 * time.Second
 	versionReadHeaderTimeout = 2 * time.Second
-	versionWriteTimeout      = 2 * time.Second
 	versionIdleTimeout       = 30 * time.Second
 )
 
@@ -63,6 +64,10 @@ func parseCNIVersion(output string) (string, error) {
 }
 
 func newVersionHTTPServer(version string, versionErr error) *http.Server {
+	return newVersionHTTPServerWithLog(version, versionErr, nodeLogPath)
+}
+
+func newVersionHTTPServerWithLog(version string, versionErr error, logPath string) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+versionEndpointPath, func(writer http.ResponseWriter, _ *http.Request) {
 		if versionErr != nil {
@@ -75,12 +80,12 @@ func newVersionHTTPServer(version string, versionErr error) *http.Server {
 			ulog.Errorf("Write CNI version response error: %+v", err)
 		}
 	})
+	mux.HandleFunc("GET "+logTailEndpointPath, newLogTailHandler(logPath))
 
 	return &http.Server{
 		Addr:              versionListenAddress,
 		Handler:           mux,
 		ReadHeaderTimeout: versionReadHeaderTimeout,
-		WriteTimeout:      versionWriteTimeout,
 		IdleTimeout:       versionIdleTimeout,
 	}
 }

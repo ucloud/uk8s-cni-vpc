@@ -113,6 +113,9 @@ spec:
               mountPath: /run/
             - name: host-log
               mountPath: /var/log/ucloud/
+            - name: node-log
+              mountPath: /host/var/log
+              readOnly: true
             - name: host-cni
               mountPath: /opt/cni/
             - name: device-plugin-path
@@ -130,6 +133,10 @@ spec:
         - name: host-log
           hostPath:
             path: /var/log/ucloud/
+        - name: node-log
+          hostPath:
+            path: /var/log
+            type: Directory
         - name: device-plugin-path
           hostPath:
             path: /var/lib/kubelet/device-plugins
