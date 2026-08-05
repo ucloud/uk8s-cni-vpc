@@ -507,12 +507,12 @@ func (s *ipamServer) borrowIP(req *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, e
 			// be performed.
 			continue
 		}
-		_, err = s.kubeClient.CoreV1().Nodes().Get(ctx, ipamd.Name, metav1.GetOptions{})
+		_, err := s.kubeClient.CoreV1().Nodes().Get(ctx, ipamd.Spec.Node, metav1.GetOptions{})
 		if err != nil {
 			if kerrors.IsNotFound(err) {
 				continue
 			}
-			return nil, fmt.Errorf("call kube-client to get node %s: %v", ipamd.Name, err)
+			return nil, fmt.Errorf("call kube-client to get node %s: %v", ipamd.Spec.Node, err)
 		}
 
 		ipamds = append(ipamds, &ipamd)
@@ -554,6 +554,7 @@ func (s *ipamServer) borrowIP(req *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, e
 			continue
 		}
 		pn := resp.IP
+		pn.Recycled = false // Ensure getPodIp runs GARP on the borrower.
 		ulog.Infof("Borrowed ip %q from ipamd %q", pn.VPCIP, ipamd.Name)
 		return pn, nil
 	}
@@ -582,6 +583,7 @@ func (s *ipamServer) lendIP(req *rpc.BorrowIPRequest) (*rpc.PodNetwork, error) {
 		s.putIpToPool(pn)
 		return nil, fmt.Errorf("failed to call uapi to move ip: %v", err)
 	}
+	pn.MacAddress = req.MacAddress
 	return pn, nil
 }
 
