@@ -6,16 +6,12 @@ BUILD_TIME=$(shell date +%F-%Z/%T)
 COMMIT_ID=$(shell git rev-parse HEAD)
 COMMIT_ID_SHORT=$(shell git rev-parse --short HEAD)
 LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
-CNIVPC_INIT_LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNIVPC_INIT_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
+CNIVPC_INIT_LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
 
 # If current commit is tagged, use tag as version, else, use dev-${COMMIT_ID} as version
 CNI_VERSION=$(shell git tag --points-at ${COMMIT_ID})
 CNI_VERSION:=$(if $(CNI_VERSION),$(CNI_VERSION),dev-${COMMIT_ID_SHORT})
 CNI_VERSION:=$(shell echo ${CNI_VERSION} | sed -e "s/^v//")
-
-CNIVPC_INIT_VERSION=$(shell git tag --points-at ${COMMIT_ID})
-CNIVPC_INIT_VERSION:=$(if $(CNIVPC_INIT_VERSION),$(CNIVPC_INIT_VERSION),dev-${COMMIT_ID_SHORT})
-CNIVPC_INIT_VERSION:=$(shell echo ${CNIVPC_INIT_VERSION} | sed -e "s/^v//")
 
 # Go args, the cni-vpc only support Linux os.
 export GOOS=linux
