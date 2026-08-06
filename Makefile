@@ -20,7 +20,7 @@ export GOARCH=$(TARGETARCH)
 export CGO_ENABLED=0
 
 DOCKER_DEPLOY_BUCKET=uhub.service.ucloud.cn/uk8s
-DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/andrew
+DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
 PLATFORM?=linux/amd64
 
 DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),dev-$(COMMIT_ID_SHORT))
