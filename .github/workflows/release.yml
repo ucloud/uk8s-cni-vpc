@@ -29,6 +29,9 @@ jobs:
       with:
         go-version: 1.24.5
 
+    - name: Build cnivpc-init
+      run: DEPLOY=true make push-cnivpc-init-image
+
     - name: Build cnivpc
       run: DEPLOY=true make cnivpc
 
