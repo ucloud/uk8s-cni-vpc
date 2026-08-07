@@ -6,6 +6,7 @@ BUILD_TIME=$(shell date +%F-%Z/%T)
 COMMIT_ID=$(shell git rev-parse HEAD)
 COMMIT_ID_SHORT=$(shell git rev-parse --short HEAD)
 LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
+CNIVPC_INIT_LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
 
 # If current commit is tagged, use tag as version, else, use dev-${COMMIT_ID} as version
 CNI_VERSION=$(shell git tag --points-at ${COMMIT_ID})
@@ -20,12 +21,14 @@ export CGO_ENABLED=0
 
 DOCKER_DEPLOY_BUCKET=uhub.service.ucloud.cn/uk8s
 DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
+PLATFORM?=linux/amd64
 
 DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),dev-$(COMMIT_ID_SHORT))
 DOCKER_LABEL:=$(if $(IMAGE_TAG),$(IMAGE_TAG),$(DOCKER_LABEL))
 DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
 
 CNIVPC_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-node:$(DOCKER_LABEL)
+CNIVPC_INIT_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-init:$(DOCKER_LABEL)
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
 VIP_CONTROLLER_IMAGE:=$(DOCKER_BUCKET)/vip-controller:$(DOCKER_LABEL)
 
@@ -37,6 +40,16 @@ all: cnivpc
 cnivpc-bin:
 	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
 	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpctl ./cmd/cnivpctl
+
+.PHONY: cnivpc-init-bin
+cnivpc-init-bin:
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${CNIVPC_INIT_LDFLAGS} -o ./bin/cnivpc ./cmd/cnivpc
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${CNIVPC_INIT_LDFLAGS} -o ./bin/cnivpc-init ./cmd/cnivpc-init
+
+.PHONY: push-cnivpc-init-image
+push-cnivpc-init-image: cnivpc-init-bin
+	$(DOCKER_CMD) buildx build --platform $(PLATFORM) --push -t $(CNIVPC_INIT_IMAGE) -f dockerfiles/cnivpc-init/Dockerfile .
+	@echo "Build done: $(CNIVPC_INIT_IMAGE)"
 
 .PHONY: cnivpc
 cnivpc: cnivpc-bin
