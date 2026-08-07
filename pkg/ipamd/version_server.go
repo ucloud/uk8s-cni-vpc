@@ -28,7 +28,7 @@ import (
 const (
 	cniBinaryPath            = "/opt/cni/bin/cnivpc"
 	cniVersionPrefix         = "ucloud-uk8s-cnivpc version "
-	versionListenAddress     = "0.0.0.0:7313"
+	httpListenAddress        = "0.0.0.0:7313"
 	versionEndpointPath      = "/version"
 	nodeLogPath              = "/host/var/log/cnivpc.log"
 	logTailEndpointPath      = "/logs/tail"
@@ -83,7 +83,7 @@ func newVersionHTTPServerWithLog(version string, versionErr error, logPath strin
 	mux.HandleFunc("GET "+logTailEndpointPath, newLogTailHandler(logPath))
 
 	return &http.Server{
-		Addr:              versionListenAddress,
+		Addr:              httpListenAddress,
 		Handler:           mux,
 		ReadHeaderTimeout: versionReadHeaderTimeout,
 		IdleTimeout:       versionIdleTimeout,
