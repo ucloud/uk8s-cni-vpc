@@ -55,6 +55,45 @@ type CooldownItem struct {
 	CooldownOver int64
 }
 
+type ipamdPoolIdentity struct {
+	nodeName string
+	subnetID string
+}
+
+func getIpamdPoolIdentity(ipamd *ipamdv1beta1.Ipamd) ipamdPoolIdentity {
+	return ipamdPoolIdentity{
+		nodeName: ipamd.Spec.Node,
+		subnetID: ipamd.Spec.Subnet,
+	}
+}
+
+func getCanonicalIpamdName(identity ipamdPoolIdentity) string {
+	return fmt.Sprintf("%s-%s", identity.nodeName, identity.subnetID)
+}
+
+func filterBorrowCandidates(ipamds []*ipamdv1beta1.Ipamd) []*ipamdv1beta1.Ipamd {
+	nodeIpamdMap := make(map[string][]*ipamdv1beta1.Ipamd, len(ipamds))
+	for _, ipamd := range ipamds {
+		nodeIpamdMap[ipamd.Spec.Node] = append(nodeIpamdMap[ipamd.Spec.Node], ipamd)
+	}
+
+	filtered := make([]*ipamdv1beta1.Ipamd, 0, len(nodeIpamdMap))
+	for _, nodeIpamds := range nodeIpamdMap {
+		selected := nodeIpamds[0]
+		if len(nodeIpamds) > 1 {
+			canonicalName := getCanonicalIpamdName(getIpamdPoolIdentity(selected))
+			for _, ipamd := range nodeIpamds {
+				if ipamd.Name == canonicalName {
+					selected = ipamd
+					break
+				}
+			}
+		}
+		filtered = append(filtered, selected)
+	}
+	return filtered
+}
+
 type InnerAddPodNetworkRequest struct {
 	Req      *rpc.AddPodNetworkRequest
 	Receiver chan *InnerAddPodNetworkResponse
@@ -392,10 +431,13 @@ func (s *ipamServer) recycleStatus() error {
 	for _, node := range nodeList.Items {
 		nodeMap[node.Name] = struct{}{}
 	}
+	nodeIpamdMap := make(map[ipamdPoolIdentity][]ipamdv1beta1.Ipamd, len(ipamdList.Items))
 
 	for _, ipamd := range ipamdList.Items {
 		nodeName := ipamd.Spec.Node
 		if _, ok := nodeMap[nodeName]; ok {
+			identity := getIpamdPoolIdentity(&ipamd)
+			nodeIpamdMap[identity] = append(nodeIpamdMap[identity], ipamd)
 			continue
 		}
 
@@ -408,6 +450,46 @@ func (s *ipamServer) recycleStatus() error {
 			continue
 		}
 		ulog.Infof("Delete unused ipamd %s done", ipamd.Name)
+	}
+
+	for identity, ipamds := range nodeIpamdMap {
+		if identity.nodeName != s.nodeName || len(ipamds) <= 1 {
+			continue
+		}
+
+		canonicalName := getCanonicalIpamdName(identity)
+		canonicalExists := false
+		for i := range ipamds {
+			if ipamds[i].Name == canonicalName {
+				canonicalExists = true
+				break
+			}
+		}
+		if !canonicalExists {
+			// Keep legacy-only resources for compatibility with nodes that have
+			// not created the canonical per-subnet resource yet.
+			continue
+		}
+
+		for i := range ipamds {
+			// Only remove the exact v1 alias. Unknown names are preserved because
+			// their active writer cannot be inferred from the current CR fields.
+			if ipamds[i].Name != identity.nodeName {
+				continue
+			}
+
+			err = s.crdClient.IpamdV1beta1().Ipamds("kube-system").Delete(ctx, ipamds[i].Name, metav1.DeleteOptions{})
+			if err != nil {
+				if kerrors.IsNotFound(err) {
+					continue
+				}
+				ulog.Errorf("Delete duplicated ipamd %q for node %q subnet %q error: %v",
+					ipamds[i].Name, identity.nodeName, identity.subnetID, err)
+				continue
+			}
+			ulog.Infof("Delete duplicated ipamd %q for node %q subnet %q done",
+				ipamds[i].Name, identity.nodeName, identity.subnetID)
+		}
 	}
 
 	return nil
@@ -522,6 +604,8 @@ func (s *ipamServer) borrowIP(req *rpc.AddPodNetworkRequest) (*rpc.PodNetwork, e
 		// If ipamds is empty after filtering, all ipamds are in dry status.
 		return nil, errors.New("no ipamd to borrow")
 	}
+
+	ipamds = filterBorrowCandidates(ipamds)
 
 	// Prioritize borrowing from pools with more remaining IPs.
 	// When a pool fails, we will continue to borrow downwards.
