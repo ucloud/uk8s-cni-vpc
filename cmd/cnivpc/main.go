@@ -102,26 +102,26 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 	pn := assignment.network
 	fromIpam := assignment.fromIPAMD
 
-	var natOutgoingIPAdded bool
-	rollbackNATOutgoingIP := func() error {
-		if !natOutgoingIPAdded {
+	var natGWOutgoingIPAdded bool
+	rollbackNATGWOutgoingIP := func() error {
+		if !natGWOutgoingIPAdded {
 			return nil
 		}
-		if cleanupErr := deleteNATOutgoingIP(pn.VPCIP); cleanupErr != nil {
+		if cleanupErr := deleteNATGWOutgoingIP(pn.VPCIP); cleanupErr != nil {
 			return cleanupErr
 		}
-		natOutgoingIPAdded = false
+		natGWOutgoingIPAdded = false
 		return nil
 	}
 	defer func() {
 		if retErr != nil {
-			retErr = errors.CombineErrors(retErr, rollbackNATOutgoingIP())
+			retErr = errors.CombineErrors(retErr, rollbackNATGWOutgoingIP())
 		}
 	}()
 
 	rollbackReleaseIP := func() {
-		if cleanupErr := rollbackNATOutgoingIP(); cleanupErr != nil {
-			ulog.Errorf("Rollback NAT outgoing state for IP %s error: %+v", pn.VPCIP, cleanupErr)
+		if cleanupErr := rollbackNATGWOutgoingIP(); cleanupErr != nil {
+			ulog.Errorf("Rollback NAT gateway outgoing state for IP %s error: %+v", pn.VPCIP, cleanupErr)
 		}
 		err = releasePodIp(podName, podNS, sandBoxId, pn)
 		if err != nil {
@@ -168,10 +168,10 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 		}
 	}
 
-	natOutgoingIPAdded, err = syncNATOutgoingIP(pn.VPCIP, assignment.natOutgoing)
+	natGWOutgoingIPAdded, err = syncNATGWOutgoingIP(pn.VPCIP, assignment.natGWOutgoingEnabled)
 	if err != nil {
 		syncErr := err
-		ulog.Errorf("Sync NAT outgoing state for IP %s error: %+v", pn.VPCIP, err)
+		ulog.Errorf("Sync NAT gateway outgoing state for IP %s error: %+v", pn.VPCIP, err)
 		rollbackReleaseIP()
 		return syncErr
 	}
@@ -261,7 +261,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	// podIP may be deleted in previous CNI DEL action
 	if pn != nil && len(pn.VPCIP) > 0 {
 		ulog.Infof("Pod network info %+v", pn)
-		if err = deleteNATOutgoingIP(pn.VPCIP); err != nil {
+		if err = deleteNATGWOutgoingIP(pn.VPCIP); err != nil {
 			return err
 		}
 		if err = cleanUpIPRoutePolicy(pn.VPCIP); err != nil {

@@ -96,11 +96,6 @@ func (in *PodNetworkingSpec) DeepCopyInto(out *PodNetworkingSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
-	if in.NATOutgoing != nil {
-		in, out := &in.NATOutgoing, &out.NATOutgoing
-		*out = new(bool)
-		**out = **in
-	}
 	return
 }
 

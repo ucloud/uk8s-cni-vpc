@@ -120,9 +120,9 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 }
 
 type podIPAssignment struct {
-	network     *rpc.PodNetwork
-	fromIPAMD   bool
-	natOutgoing bool
+	network              *rpc.PodNetwork
+	fromIPAMD            bool
+	natGWOutgoingEnabled bool
 }
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
@@ -137,10 +137,10 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, err
 		return nil, err
 	}
 
-	natOutgoing := true
+	var natGWOutgoingEnabled bool
 	var uni *vpc.NetworkInterface
 	if pnConfig != nil {
-		natOutgoing = pnConfig.Spec.NATOutgoingEnabled()
+		natGWOutgoingEnabled = pnConfig.Spec.NATGWOutgoingEnabled
 		uni, err = initPodNetworking(pnConfig)
 		if err != nil {
 			return nil, err
@@ -161,7 +161,11 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, err
 			if err != nil {
 				return nil, fmt.Errorf("failed to call ipamd: %v", err)
 			}
-			return &podIPAssignment{network: ip, fromIPAMD: true, natOutgoing: natOutgoing}, nil
+			return &podIPAssignment{
+				network:              ip,
+				fromIPAMD:            true,
+				natGWOutgoingEnabled: natGWOutgoingEnabled,
+			}, nil
 		}
 	}
 
@@ -179,7 +183,10 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
-	return &podIPAssignment{network: ip, natOutgoing: natOutgoing}, nil
+	return &podIPAssignment{
+		network:              ip,
+		natGWOutgoingEnabled: natGWOutgoingEnabled,
+	}, nil
 }
 
 // If there is ipamd daemon service, use ipamd to release Pod Ip;

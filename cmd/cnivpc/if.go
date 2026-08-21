@@ -353,15 +353,15 @@ func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRules
 }
 
 func (m *iptablesRulesManager) updateRules() error {
-	if err := ensureNATOutgoingIPSet(); err != nil {
+	if err := ensureNATGWOutgoingIPSet(); err != nil {
 		return err
 	}
-	needsMigration, err := m.needsNATOutgoingMigration()
+	needsMigration, err := m.needsNATGWOutgoingMigration()
 	if err != nil {
 		return err
 	}
 	if needsMigration {
-		if err := migrateLegacyNATOutgoingIPs(); err != nil {
+		if err := migrateLegacyNATGWOutgoingIPs(); err != nil {
 			return err
 		}
 	}
@@ -394,9 +394,9 @@ func podOutboundConnmarkJumpRule() []string {
 	}
 }
 
-func natOutgoingBypassRule() []string {
+func natGWOutgoingBypassRule() []string {
 	return []string{
-		"-m", "set", "--match-set", natOutgoingDisabledIPSetName, "src",
+		"-m", "set", "--match-set", natGWOutgoingEnabledIPSetName, "src",
 		"-m", "comment", "--comment", "UCLOUD NAT OUTGOING DISABLED",
 		"-j", "RETURN",
 	}
@@ -409,18 +409,18 @@ func podOutboundConnmarkRule() []string {
 	}
 }
 
-func (m *iptablesRulesManager) needsNATOutgoingMigration() (bool, error) {
+func (m *iptablesRulesManager) needsNATGWOutgoingMigration() (bool, error) {
 	chainExists, err := m.ipt.ChainExists("nat", connmarkChainName)
 	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check chain")
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check chain")
 	}
 	if !chainExists {
 		return true, nil
 	}
 
-	bypassExists, err := m.ipt.Exists("nat", connmarkChainName, natOutgoingBypassRule()...)
+	bypassExists, err := m.ipt.Exists("nat", connmarkChainName, natGWOutgoingBypassRule()...)
 	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check bypass rule")
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check bypass rule")
 	}
 	if bypassExists {
 		return false, nil
@@ -428,11 +428,11 @@ func (m *iptablesRulesManager) needsNATOutgoingMigration() (bool, error) {
 
 	jumpExists, err := m.ipt.Exists("nat", "PREROUTING", podOutboundConnmarkJumpRule()...)
 	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check jump rule")
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check jump rule")
 	}
 	markExists, err := m.ipt.Exists("nat", connmarkChainName, podOutboundConnmarkRule()...)
 	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check mark rule")
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check mark rule")
 	}
 	return !jumpExists || !markExists, nil
 }
@@ -529,14 +529,14 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 		})
 	}
 
-	// Pods with NAT outgoing disabled must retain their source address and use
-	// the existing source-based UNI route.
+	// Pods using NAT gateway outgoing must retain their source address and use
+	// the existing source-based UNI route instead of node SNAT.
 	rules = append(rules, iptablesRule{
 		name:        connmarkChainName,
 		shouldExist: true,
 		table:       "nat",
 		chain:       connmarkChainName,
-		rule:        natOutgoingBypassRule(),
+		rule:        natGWOutgoingBypassRule(),
 	})
 
 	rules = append(rules, iptablesRule{

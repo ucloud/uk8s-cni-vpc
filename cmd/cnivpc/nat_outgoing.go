@@ -24,32 +24,34 @@ import (
 	"github.com/vishvananda/netlink/nl"
 )
 
-const natOutgoingDisabledIPSetName = "UCLOUD-NATOUTGOING-OFF"
+// Keep the existing kernel object name: enabling NAT gateway outgoing means
+// node-side NAT outgoing is disabled for the Pod IP.
+const natGWOutgoingEnabledIPSetName = "UCLOUD-NATOUTGOING-OFF"
 
-func ensureNATOutgoingIPSet() error {
+func ensureNATGWOutgoingIPSet() error {
 	err := netlink.IpsetCreate(
-		natOutgoingDisabledIPSetName,
+		natGWOutgoingEnabledIPSetName,
 		"hash:ip",
 		netlink.IpsetCreateOptions{Replace: true},
 	)
 	if err != nil {
-		return errors.Wrap(err, "main.ensureNATOutgoingIPSet create")
+		return errors.Wrap(err, "main.ensureNATGWOutgoingIPSet create")
 	}
 	return nil
 }
 
-func natOutgoingIPSetEntry(podIP string) (*netlink.IPSetEntry, error) {
+func natGWOutgoingIPSetEntry(podIP string) (*netlink.IPSetEntry, error) {
 	ip := net.ParseIP(podIP)
 	if ip == nil || ip.To4() == nil {
 		return nil, errors.Errorf(
-			"main.natOutgoingIPSetEntry invalid IPv4 address %q",
+			"main.natGWOutgoingIPSetEntry invalid IPv4 address %q",
 			errors.Safe(podIP),
 		)
 	}
 	return &netlink.IPSetEntry{IP: ip.To4()}, nil
 }
 
-func migrateLegacyNATOutgoingIPs() error {
+func migrateLegacyNATGWOutgoingIPs() error {
 	networks, err := listPodNetworkRecords()
 	if err != nil {
 		return err
@@ -59,69 +61,69 @@ func migrateLegacyNATOutgoingIPs() error {
 		if network == nil {
 			continue
 		}
-		entry, err := natOutgoingIPSetEntry(network.VPCIP)
+		entry, err := natGWOutgoingIPSetEntry(network.VPCIP)
 		if err != nil {
 			return err
 		}
 		entry.Replace = true
-		if err := netlink.IpsetAdd(natOutgoingDisabledIPSetName, entry); err != nil {
+		if err := netlink.IpsetAdd(natGWOutgoingEnabledIPSetName, entry); err != nil {
 			return errors.Wrapf(
 				err,
-				"main.migrateLegacyNATOutgoingIPs add %s",
+				"main.migrateLegacyNATGWOutgoingIPs add %s",
 				errors.Safe(network.VPCIP),
 			)
 		}
 	}
 
-	ulog.Infof("Migrated %d existing Pod IPs to NAT outgoing disabled set", len(networks))
+	ulog.Infof("Migrated %d existing Pod IPs to NAT gateway outgoing set", len(networks))
 	return nil
 }
 
-// syncNATOutgoingIP converges a Pod IP to the requested NAT outgoing policy.
-// The returned boolean reports whether this call added a new no-NAT member,
+// syncNATGWOutgoingIP converges a Pod IP to the requested NAT gateway policy.
+// The returned boolean reports whether this call added a new NAT gateway member,
 // allowing callers to roll back only their own side effect.
-func syncNATOutgoingIP(podIP string, natOutgoing bool) (bool, error) {
-	if err := ensureNATOutgoingIPSet(); err != nil {
+func syncNATGWOutgoingIP(podIP string, natGWOutgoingEnabled bool) (bool, error) {
+	if err := ensureNATGWOutgoingIPSet(); err != nil {
 		return false, err
 	}
 
-	if natOutgoing {
-		if err := deleteNATOutgoingIP(podIP); err != nil {
+	if !natGWOutgoingEnabled {
+		if err := deleteNATGWOutgoingIP(podIP); err != nil {
 			return false, err
 		}
 		return false, nil
 	}
 
-	entry, err := natOutgoingIPSetEntry(podIP)
+	entry, err := natGWOutgoingIPSetEntry(podIP)
 	if err != nil {
 		return false, err
 	}
-	if err := netlink.IpsetAdd(natOutgoingDisabledIPSetName, entry); err != nil {
+	if err := netlink.IpsetAdd(natGWOutgoingEnabledIPSetName, entry); err != nil {
 		if errors.Is(err, nl.IPSetError(nl.IPSET_ERR_EXIST)) {
 			return false, nil
 		}
 		return false, errors.Wrapf(
 			err,
-			"main.syncNATOutgoingIP add %s",
+			"main.syncNATGWOutgoingIP add %s",
 			errors.Safe(podIP),
 		)
 	}
 	return true, nil
 }
 
-func deleteNATOutgoingIP(podIP string) error {
-	entry, err := natOutgoingIPSetEntry(podIP)
+func deleteNATGWOutgoingIP(podIP string) error {
+	entry, err := natGWOutgoingIPSetEntry(podIP)
 	if err != nil {
 		return err
 	}
 	entry.Replace = true
-	if err := netlink.IpsetDel(natOutgoingDisabledIPSetName, entry); err != nil {
+	if err := netlink.IpsetDel(natGWOutgoingEnabledIPSetName, entry); err != nil {
 		if errors.Is(err, syscall.ENOENT) {
 			return nil
 		}
 		return errors.Wrapf(
 			err,
-			"main.deleteNATOutgoingIP delete %s",
+			"main.deleteNATGWOutgoingIP delete %s",
 			errors.Safe(podIP),
 		)
 	}
