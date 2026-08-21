@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/cockroachdb/errors"
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
@@ -352,6 +353,19 @@ func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRules
 }
 
 func (m *iptablesRulesManager) updateRules() error {
+	if err := ensureNATOutgoingIPSet(); err != nil {
+		return err
+	}
+	needsMigration, err := m.needsNATOutgoingMigration()
+	if err != nil {
+		return err
+	}
+	if needsMigration {
+		if err := migrateLegacyNATOutgoingIPs(); err != nil {
+			return err
+		}
+	}
+
 	snatRules, err := m.buildSNATRules()
 	if err != nil {
 		return err
@@ -371,6 +385,57 @@ func (m *iptablesRulesManager) updateRules() error {
 	}
 
 	return nil
+}
+
+func podOutboundConnmarkJumpRule() []string {
+	return []string{
+		"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
+		"-m", "state", "--state", "NEW", "-j", connmarkChainName,
+	}
+}
+
+func natOutgoingBypassRule() []string {
+	return []string{
+		"!", "-d", metadataServiceCIDR,
+		"-m", "set", "--match-set", natOutgoingDisabledIPSetName, "src",
+		"-m", "comment", "--comment", "UCLOUD NAT OUTGOING DISABLED",
+		"-j", "RETURN",
+	}
+}
+
+func podOutboundConnmarkRule() []string {
+	return []string{
+		"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+		"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+	}
+}
+
+func (m *iptablesRulesManager) needsNATOutgoingMigration() (bool, error) {
+	chainExists, err := m.ipt.ChainExists("nat", connmarkChainName)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check chain")
+	}
+	if !chainExists {
+		return true, nil
+	}
+
+	bypassExists, err := m.ipt.Exists("nat", connmarkChainName, natOutgoingBypassRule()...)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check bypass rule")
+	}
+	if bypassExists {
+		return false, nil
+	}
+
+	jumpExists, err := m.ipt.Exists("nat", "PREROUTING", podOutboundConnmarkJumpRule()...)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check jump rule")
+	}
+	markExists, err := m.ipt.Exists("nat", connmarkChainName, podOutboundConnmarkRule()...)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATOutgoingMigration check mark rule")
+	}
+	return !jumpExists || !markExists, nil
 }
 
 func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
@@ -453,23 +518,6 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 
 	rules := make([]iptablesRule, 0)
 
-	rule := iptablesRule{
-		name:        "connmark rule for non-VPC outbound traffic",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
-			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
-		},
-	}
-	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
-	// always true for packets traversing the nat table
-	deleteRule := rule
-	deleteRule.shouldExist = false
-	rules = append(rules, deleteRule)
-	rules = append(rules, rule)
-
 	for _, cidr := range m.vpcCIDRs {
 		rules = append(rules, iptablesRule{
 			name:        connmarkChainName,
@@ -482,16 +530,40 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 		})
 	}
 
+	// Pods with NAT outgoing disabled must retain their source address and use
+	// the existing source-based UNI route. Metadata traffic is kept on the
+	// primary interface for backward compatibility.
+	rules = append(rules, iptablesRule{
+		name:        connmarkChainName,
+		shouldExist: true,
+		table:       "nat",
+		chain:       connmarkChainName,
+		rule:        natOutgoingBypassRule(),
+	})
+
 	rules = append(rules, iptablesRule{
 		name:        "connmark rule for external outbound traffic",
 		shouldExist: true,
 		table:       "nat",
 		chain:       connmarkChainName,
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
-		},
+		rule:        podOutboundConnmarkRule(),
 	})
+
+	// Attach the custom chain only after its bypass rules are ready, so legacy
+	// Pod traffic cannot reach an existing mark rule during migration.
+	rule := iptablesRule{
+		name:        "connmark rule for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule:        podOutboundConnmarkJumpRule(),
+	}
+	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
+	// always true for packets traversing the nat table
+	deleteRule := rule
+	deleteRule.shouldExist = false
+	rules = append(rules, deleteRule)
+	rules = append(rules, rule)
 
 	// Being in the nat table, this only applies to the first packet of the connection. The mark
 	// will be restored in the mangle table for subsequent packets.

@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
@@ -75,7 +76,7 @@ func cmdArgsString(args *skel.CmdArgs) string {
 }
 
 // cmdAdd is called for ADD requests
-func cmdAdd(args *skel.CmdArgs) error {
+func cmdAdd(args *skel.CmdArgs) (retErr error) {
 	releaseLock := lockfile.MustAcquire()
 	defer releaseLock()
 
@@ -93,13 +94,35 @@ func cmdAdd(args *skel.CmdArgs) error {
 	netNS := os.Getenv("CNI_NETNS")
 
 	// To assign a VPC IP for pod
-	pn, fromIpam, err := assignPodIp(podName, podNS, netNS, sandBoxId)
+	assignment, err := assignPodIp(podName, podNS, netNS, sandBoxId)
 	if err != nil {
 		ulog.Errorf("Assign a vpc ip for pod %s/%s error: %v", podName, podNS, err)
 		return fmt.Errorf("failed to assign ip: %v", err)
 	}
+	pn := assignment.network
+	fromIpam := assignment.fromIPAMD
+
+	var natOutgoingIPAdded bool
+	rollbackNATOutgoingIP := func() error {
+		if !natOutgoingIPAdded {
+			return nil
+		}
+		if cleanupErr := deleteNATOutgoingIP(pn.VPCIP); cleanupErr != nil {
+			return cleanupErr
+		}
+		natOutgoingIPAdded = false
+		return nil
+	}
+	defer func() {
+		if retErr != nil {
+			retErr = errors.CombineErrors(retErr, rollbackNATOutgoingIP())
+		}
+	}()
 
 	rollbackReleaseIP := func() {
+		if cleanupErr := rollbackNATOutgoingIP(); cleanupErr != nil {
+			ulog.Errorf("Rollback NAT outgoing state for IP %s error: %+v", pn.VPCIP, cleanupErr)
+		}
 		err = releasePodIp(podName, podNS, sandBoxId, pn)
 		if err != nil {
 			ulog.Errorf("Release ip %s after failure error: %v, ip might leak", pn.VPCIP, err)
@@ -143,6 +166,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 			rollbackReleaseIP()
 			return ErrIPConflict
 		}
+	}
+
+	natOutgoingIPAdded, err = syncNATOutgoingIP(pn.VPCIP, assignment.natOutgoing)
+	if err != nil {
+		syncErr := err
+		ulog.Errorf("Sync NAT outgoing state for IP %s error: %+v", pn.VPCIP, err)
+		rollbackReleaseIP()
+		return syncErr
 	}
 
 	// We need to setup vethpair to pod's network namespace
@@ -230,6 +261,9 @@ func cmdDel(args *skel.CmdArgs) error {
 	// podIP may be deleted in previous CNI DEL action
 	if pn != nil && len(pn.VPCIP) > 0 {
 		ulog.Infof("Pod network info %+v", pn)
+		if err = deleteNATOutgoingIP(pn.VPCIP); err != nil {
+			return err
+		}
 		if err = cleanUpIPRoutePolicy(pn.VPCIP); err != nil {
 			return fmt.Errorf("fail to clean up ip rules: %v", err)
 		}

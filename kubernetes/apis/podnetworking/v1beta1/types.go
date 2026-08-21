@@ -46,6 +46,13 @@ type PodNetworkingSpec struct {
 	SecurityGroupIds []string                 `json:"securityGroupIds"`
 	SubnetIds        []string                 `json:"subnetIds"`
 	Strategy         SubnetAllocationStrategy `json:"strategy,omitempty"`
+	NATOutgoing      *bool                    `json:"natOutgoing,omitempty"`
+}
+
+// NATOutgoingEnabled returns whether traffic leaving the VPC should be
+// masqueraded. NAT is enabled by default for backward compatibility.
+func (in PodNetworkingSpec) NATOutgoingEnabled() bool {
+	return in.NATOutgoing == nil || *in.NATOutgoing
 }
 
 // PodNetworkingSpec is the status for PodNetworking resource

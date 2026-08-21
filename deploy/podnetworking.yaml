@@ -33,6 +33,9 @@ spec:
                   enum:
                     - sequential
                     - balanced
+                natOutgoing:
+                  type: boolean
+                  default: true
             status:
               type: object
               properties:

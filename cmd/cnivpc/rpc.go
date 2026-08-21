@@ -16,12 +16,12 @@ package main
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/request"
@@ -119,24 +119,31 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 	return podnet, nil
 }
 
+type podIPAssignment struct {
+	network     *rpc.PodNetwork
+	fromIPAMD   bool
+	natOutgoing bool
+}
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
-func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
+func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, error) {
 	kubeClient, err := kubeclient.GetNodeClient()
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
+		return nil, fmt.Errorf("failed to get node kube client: %v", err)
 	}
 	pnConfig, err := getPodNetworkingConfig(kubeClient, podName, podNS)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
+	natOutgoing := true
 	var uni *vpc.NetworkInterface
 	if pnConfig != nil {
+		natOutgoing = pnConfig.Spec.NATOutgoingEnabled()
 		uni, err = initPodNetworking(pnConfig)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 
@@ -152,27 +159,27 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		if enabledIpamd(c) && ipamdSupportMultiSubnet(c) {
 			ip, err := allocateSecondaryIPFromIpamd(c, uni, podName, podNS, netNS, sandboxId)
 			if err != nil {
-				return nil, false, fmt.Errorf("failed to call ipamd: %v", err)
+				return nil, fmt.Errorf("failed to call ipamd: %v", err)
 			}
-			return ip, true, nil
+			return &podIPAssignment{network: ip, fromIPAMD: true, natOutgoing: natOutgoing}, nil
 		}
 	}
 
 	enableStaticIP, _, err := ipamd.IsPodEnableStaticIP(kubeClient, podName, podNS)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to check pod static ip enable: %v", err)
+		return nil, fmt.Errorf("failed to check pod static ip enable: %v", err)
 	}
 	if enableStaticIP {
 		// If pod enable static ip, we donot allow it to allocate ip without ipamd
-		return nil, false, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
+		return nil, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
 	ip, err := allocateSecondaryIP(uni, podName, podNS, sandboxId)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to setup secondary ip: %v", err)
+		return nil, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
-	return ip, false, nil
+	return &podIPAssignment{network: ip, natOutgoing: natOutgoing}, nil
 }
 
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
@@ -791,6 +798,42 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		return fmt.Errorf("gRPC DelPodNetworkRecord failed, code %v", r.Code)
 	}
 	return nil
+}
+
+func listPodNetworkRecords() ([]*rpc.PodNetwork, error) {
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err == nil {
+		defer conn.Close()
+		client := rpc.NewCNIIpamClient(conn)
+		if enabledIpamd(client) {
+			response, err := client.ListPodNetworkRecord(
+				context.Background(),
+				&rpc.ListPodNetworkRecordRequest{},
+			)
+			if err != nil {
+				return nil, errors.Wrap(err, "main.listPodNetworkRecords list from ipamd")
+			}
+			if response.Code != rpc.CNIErrorCode_CNISuccess {
+				return nil, errors.Errorf(
+					"main.listPodNetworkRecords ipamd returned code %d",
+					errors.Safe(response.Code),
+				)
+			}
+			return response.Networks, nil
+		}
+	}
+
+	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	records, err := db.List()
+	if err != nil {
+		return nil, errors.Wrap(err, "main.listPodNetworkRecords list local database")
+	}
+	return database.Values(records), nil
 }
 
 // If there is ipamd daemon service, use ipamd to get PodNetworkRecord;
