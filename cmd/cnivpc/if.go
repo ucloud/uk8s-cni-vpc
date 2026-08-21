@@ -396,7 +396,6 @@ func podOutboundConnmarkJumpRule() []string {
 
 func natOutgoingBypassRule() []string {
 	return []string{
-		"!", "-d", metadataServiceCIDR,
 		"-m", "set", "--match-set", natOutgoingDisabledIPSetName, "src",
 		"-m", "comment", "--comment", "UCLOUD NAT OUTGOING DISABLED",
 		"-j", "RETURN",
@@ -531,8 +530,7 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 	}
 
 	// Pods with NAT outgoing disabled must retain their source address and use
-	// the existing source-based UNI route. Metadata traffic is kept on the
-	// primary interface for backward compatibility.
+	// the existing source-based UNI route.
 	rules = append(rules, iptablesRule{
 		name:        connmarkChainName,
 		shouldExist: true,

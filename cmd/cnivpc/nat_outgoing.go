@@ -24,10 +24,7 @@ import (
 	"github.com/vishvananda/netlink/nl"
 )
 
-const (
-	natOutgoingDisabledIPSetName = "UCLOUD-NATOUTGOING-OFF"
-	metadataServiceCIDR          = "100.80.80.80/32"
-)
+const natOutgoingDisabledIPSetName = "UCLOUD-NATOUTGOING-OFF"
 
 func ensureNATOutgoingIPSet() error {
 	err := netlink.IpsetCreate(
