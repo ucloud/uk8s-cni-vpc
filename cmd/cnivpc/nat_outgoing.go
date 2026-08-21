@@ -26,7 +26,7 @@ import (
 
 // Keep the existing kernel object name: enabling NAT gateway outgoing means
 // node-side NAT outgoing is disabled for the Pod IP.
-const natGWOutgoingEnabledIPSetName = "UCLOUD-NATOUTGOING-OFF"
+const natGWOutgoingEnabledIPSetName = "UCLOUD-NATGW-OUTGOING"
 
 func ensureNATGWOutgoingIPSet() error {
 	err := netlink.IpsetCreate(
