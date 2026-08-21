@@ -64,25 +64,26 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 	return database.NewBolt[rpc.PodNetwork](dbName, db)
 }
 
-func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, error) {
+func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, string, error) {
 	ability, err := uapi.GetAbility()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance ability: %v", err)
+		return nil, "", fmt.Errorf("failed to get instance ability: %v", err)
 	}
 	if !ability.SupportUNI {
 		ulog.Infof("Current uhost does not support UNI, ignore podnetworking config")
-		return nil, nil
+		return nil, "", nil
 	}
 
 	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
+		return nil, "", fmt.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
 	}
+	nodeName := pod.Spec.NodeName
 	disable := pod.Annotations[ipamd.AnnotationPodNetworkingDisable]
 	if disable == "true" {
 		// User disable podnetworking manually
 		ulog.Infof("pod %s/%s disabled podnetworking", podNS, podName)
-		return nil, nil
+		return nil, nodeName, nil
 	}
 
 	pnName := pod.Annotations[ipamd.AnnotationPodNetworkingName]
@@ -92,22 +93,22 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 
 	crdClient, err := kubeclient.GetNodeCRDClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get crd kube client: %v", err)
+		return nil, "", fmt.Errorf("failed to get crd kube client: %v", err)
 	}
 	podnet, err := crdClient.VpcV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
 	if err != nil {
 		// 当指定了自定义的 podnetworking 且无法查到时，也要阻塞 pod 创建
 		if k8serr.IsNotFound(err) && pnName == DefaultPodNetworkingName {
-			return nil, nil
+			return nil, nodeName, nil
 		}
-		return nil, fmt.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
+		return nil, "", fmt.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
 	}
 	if len(podnet.Spec.SubnetIds) == 0 {
-		return nil, fmt.Errorf("podnetworking %s has no subnet", pnName)
+		return nil, "", fmt.Errorf("podnetworking %s has no subnet", pnName)
 	}
 
 	if len(podnet.Spec.SecurityGroupIds) == 0 && ability.SecGroup {
-		return nil, errors.New("inconsistency error: node has secgroup but podnetworking config has not")
+		return nil, "", errors.New("inconsistency error: node has secgroup but podnetworking config has not")
 	}
 
 	if len(podnet.Spec.SecurityGroupIds) > 0 && !ability.SecGroup {
@@ -116,7 +117,7 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		podnet.Spec.SecurityGroupIds = nil
 	}
 
-	return podnet, nil
+	return podnet, nodeName, nil
 }
 
 type podIPAssignment struct {
@@ -132,7 +133,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to get node kube client: %v", err)
 	}
-	pnConfig, err := getPodNetworkingConfig(kubeClient, podName, podNS)
+	pnConfig, nodeName, err := getPodNetworkingConfig(kubeClient, podName, podNS)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +142,7 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, err
 	var uni *vpc.NetworkInterface
 	if pnConfig != nil {
 		natGWOutgoingEnabled = pnConfig.Spec.NATGWOutgoingEnabled
-		uni, err = initPodNetworking(pnConfig)
+		uni, err = initPodNetworking(pnConfig, nodeName)
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +264,7 @@ func allocateSecondaryIP(uni *vpc.NetworkInterface, podName, podNS, sandboxID st
 	return &pn, nil
 }
 
-func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.NetworkInterface, error) {
+func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking, nodeName string) (*vpc.NetworkInterface, error) {
 	client, err := uapi.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init uapi client: %v", err)
@@ -298,7 +299,7 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 		return nil, err
 	}
 
-	err = iptablesRulesManager.updateRules()
+	err = iptablesRulesManager.updateRules(nodeName)
 	if err != nil {
 		return nil, err
 	}

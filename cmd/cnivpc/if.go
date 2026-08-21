@@ -352,7 +352,7 @@ func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRules
 	}, nil
 }
 
-func (m *iptablesRulesManager) updateRules() error {
+func (m *iptablesRulesManager) updateRules(nodeName string) error {
 	if err := ensureNATGWOutgoingIPSet(); err != nil {
 		return err
 	}
@@ -361,7 +361,7 @@ func (m *iptablesRulesManager) updateRules() error {
 		return err
 	}
 	if needsMigration {
-		if err := migrateLegacyNATGWOutgoingIPs(); err != nil {
+		if err := migrateLegacyNATGWOutgoingIPs(nodeName); err != nil {
 			return err
 		}
 	}
@@ -422,19 +422,7 @@ func (m *iptablesRulesManager) needsNATGWOutgoingMigration() (bool, error) {
 	if err != nil {
 		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check bypass rule")
 	}
-	if bypassExists {
-		return false, nil
-	}
-
-	jumpExists, err := m.ipt.Exists("nat", "PREROUTING", podOutboundConnmarkJumpRule()...)
-	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check jump rule")
-	}
-	markExists, err := m.ipt.Exists("nat", connmarkChainName, podOutboundConnmarkRule()...)
-	if err != nil {
-		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check mark rule")
-	}
-	return !jumpExists || !markExists, nil
+	return !bypassExists, nil
 }
 
 func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
