@@ -262,7 +262,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	if pn != nil && len(pn.VPCIP) > 0 {
 		ulog.Infof("Pod network info %+v", pn)
 		if err = deleteNATGWOutgoingIP(pn.VPCIP); err != nil {
-			return err
+			ulog.Warnf("Delete NAT gateway outgoing IP %s error: %v", pn.VPCIP, err)
 		}
 		if err = cleanUpIPRoutePolicy(pn.VPCIP); err != nil {
 			return fmt.Errorf("fail to clean up ip rules: %v", err)
