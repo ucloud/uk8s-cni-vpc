@@ -299,7 +299,7 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking, nodeName st
 		return nil, err
 	}
 
-	err = iptablesRulesManager.updateRules(nodeName)
+	err = iptablesRulesManager.updateRules(nodeName, pnConfig.Spec.NATGWOutgoingEnabled)
 	if err != nil {
 		return nil, err
 	}

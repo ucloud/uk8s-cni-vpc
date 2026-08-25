@@ -121,7 +121,7 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 
 	rollbackReleaseIP := func() {
 		if cleanupErr := rollbackNATGWOutgoingIP(); cleanupErr != nil {
-			ulog.Errorf("Rollback NAT gateway outgoing state for IP %s error: %+v", pn.VPCIP, cleanupErr)
+			ulog.Warnf("Rollback NAT gateway outgoing state for IP %s error: %+v", pn.VPCIP, cleanupErr)
 		}
 		err = releasePodIp(podName, podNS, sandBoxId, pn)
 		if err != nil {
@@ -168,12 +168,14 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 		}
 	}
 
-	natGWOutgoingIPAdded, err = syncNATGWOutgoingIP(pn.VPCIP, assignment.natGWOutgoingEnabled)
-	if err != nil {
-		syncErr := err
-		ulog.Errorf("Sync NAT gateway outgoing state for IP %s error: %+v", pn.VPCIP, err)
-		rollbackReleaseIP()
-		return syncErr
+	natGWOutgoingIPAdded, natErr := syncNATGWOutgoingIP(pn.VPCIP, assignment.natGWOutgoingEnabled)
+	if natErr != nil {
+		natGWOutgoingIPAdded = false
+		ulog.Warnf(
+			"Sync NAT gateway outgoing state for IP %s failed, fallback to node SNAT: %+v",
+			pn.VPCIP,
+			natErr,
+		)
 	}
 
 	// We need to setup vethpair to pod's network namespace

@@ -23,6 +23,7 @@ import (
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ipamd"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
+	"github.com/ucloud/uk8s-cni-vpc/rpc"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
 	v1 "k8s.io/api/core/v1"
@@ -110,10 +111,45 @@ func migrateLegacyNATGWOutgoingIPs(nodeName string) error {
 		podNetworkingPolicies[podNetworking.Name] = podNetworking.Spec.NATGWOutgoingEnabled
 	}
 
-	// desiredPodIPs is the target ipset state derived from live Pod selections
-	// and the Pod IPs persisted in BoltDB. The disable annotation takes
-	// precedence over both an explicit PodNetworking name and the default one,
-	// matching the CNI ADD path.
+	desiredPodIPs := desiredNATGWOutgoingIPs(networks, podsByName, podNetworkingPolicies)
+
+	// currentPodIPs is the actual kernel ipset state before migration.
+	currentIPSet, err := netlink.IpsetList(natGWOutgoingEnabledIPSetName)
+	if err != nil {
+		return errors.Wrap(err, "main.migrateLegacyNATGWOutgoingIPs list current ipset")
+	}
+	currentPodIPs := currentNATGWOutgoingIPs(currentIPSet.Entries)
+
+	// Add desired members that are missing, then remove current members that
+	// are no longer desired. The two differences fully describe the migration.
+	toAdd := desiredPodIPs.Difference(currentPodIPs)
+	toDelete := currentPodIPs.Difference(desiredPodIPs)
+	for podIP := range toAdd {
+		if _, err := syncNATGWOutgoingIP(podIP, true); err != nil {
+			return err
+		}
+	}
+	for podIP := range toDelete {
+		if err := deleteNATGWOutgoingIP(podIP); err != nil {
+			return err
+		}
+	}
+
+	ulog.Infof(
+		"Migrated NAT gateway outgoing ipset: desired=%d current=%d add=%d delete=%d",
+		desiredPodIPs.Len(), currentPodIPs.Len(), toAdd.Len(), toDelete.Len(),
+	)
+	return nil
+}
+
+// desiredNATGWOutgoingIPs derives the target ipset state from live Pod
+// selections and persisted Pod IPs. Invalid individual records are ignored so
+// one stale object cannot prevent the remaining records from converging.
+func desiredNATGWOutgoingIPs(
+	networks []*rpc.PodNetwork,
+	podsByName map[types.NamespacedName]*v1.Pod,
+	podNetworkingPolicies map[string]bool,
+) sets.Set[string] {
 	desiredPodIPs := sets.New[string]()
 	for _, network := range networks {
 		if network == nil {
@@ -145,11 +181,11 @@ func migrateLegacyNATGWOutgoingIPs(nodeName string) error {
 		natGWOutgoingEnabled, exists := podNetworkingPolicies[podNetworkingName]
 		if !exists {
 			if podNetworkingName != DefaultPodNetworkingName {
-				return errors.Errorf(
-					"main.migrateLegacyNATGWOutgoingIPs Pod %s/%s references missing PodNetworking %s",
-					errors.Safe(network.PodNS),
-					errors.Safe(network.PodName),
-					errors.Safe(podNetworkingName),
+				ulog.Warnf(
+					"Ignore Pod network record for %s/%s during NAT gateway outgoing migration: PodNetworking %s does not exist",
+					network.PodNS,
+					network.PodName,
+					podNetworkingName,
 				)
 			}
 			continue
@@ -159,63 +195,48 @@ func migrateLegacyNATGWOutgoingIPs(nodeName string) error {
 		}
 		entry, err := natGWOutgoingIPSetEntry(network.VPCIP)
 		if err != nil {
-			return err
+			ulog.Warnf(
+				"Ignore Pod network record for %s/%s during NAT gateway outgoing migration: %+v",
+				network.PodNS,
+				network.PodName,
+				err,
+			)
+			continue
 		}
 		desiredPodIPs.Insert(entry.IP.String())
 	}
+	return desiredPodIPs
+}
 
-	// currentPodIPs is the actual kernel ipset state before migration.
-	currentIPSet, err := netlink.IpsetList(natGWOutgoingEnabledIPSetName)
-	if err != nil {
-		return errors.Wrap(err, "main.migrateLegacyNATGWOutgoingIPs list current ipset")
-	}
+// currentNATGWOutgoingIPs normalizes the kernel entries used for migration.
+// Entries that cannot participate in this IPv4 ipset are left untouched.
+func currentNATGWOutgoingIPs(entries []netlink.IPSetEntry) sets.Set[string] {
 	currentPodIPs := sets.New[string]()
-	for _, entry := range currentIPSet.Entries {
+	for _, entry := range entries {
 		ip := entry.IP.To4()
 		if ip == nil {
-			return errors.Errorf(
-				"main.migrateLegacyNATGWOutgoingIPs invalid IPv4 entry %s in current ipset",
-				errors.Safe(entry.IP.String()),
+			ulog.Warnf(
+				"Ignore invalid IPv4 entry %s in NAT gateway outgoing ipset during migration",
+				entry.IP.String(),
 			)
+			continue
 		}
 		currentPodIPs.Insert(ip.String())
 	}
-
-	// Add desired members that are missing, then remove current members that
-	// are no longer desired. The two differences fully describe the migration.
-	toAdd := desiredPodIPs.Difference(currentPodIPs)
-	toDelete := currentPodIPs.Difference(desiredPodIPs)
-	for podIP := range toAdd {
-		if _, err := syncNATGWOutgoingIP(podIP, true); err != nil {
-			return err
-		}
-	}
-	for podIP := range toDelete {
-		if err := deleteNATGWOutgoingIP(podIP); err != nil {
-			return err
-		}
-	}
-
-	ulog.Infof(
-		"Migrated NAT gateway outgoing ipset: desired=%d current=%d add=%d delete=%d",
-		desiredPodIPs.Len(), currentPodIPs.Len(), toAdd.Len(), toDelete.Len(),
-	)
-	return nil
+	return currentPodIPs
 }
 
-// syncNATGWOutgoingIP converges a Pod IP to the requested NAT gateway policy.
-// The returned boolean reports whether this call added a new NAT gateway member,
-// allowing callers to roll back only their own side effect.
+// syncNATGWOutgoingIP adds a Pod IP when NAT gateway outgoing is enabled.
+// The disabled path is intentionally a no-op; CNI DEL and initial migration
+// own residual cleanup so disabled Pods do not depend on ipset.
+// The returned boolean lets callers roll back only their own side effect.
 func syncNATGWOutgoingIP(podIP string, natGWOutgoingEnabled bool) (bool, error) {
-	if err := ensureNATGWOutgoingIPSet(); err != nil {
-		return false, err
+	if !natGWOutgoingEnabled {
+		return false, nil
 	}
 
-	if !natGWOutgoingEnabled {
-		if err := deleteNATGWOutgoingIP(podIP); err != nil {
-			return false, err
-		}
-		return false, nil
+	if err := ensureNATGWOutgoingIPSet(); err != nil {
+		return false, err
 	}
 
 	entry, err := natGWOutgoingIPSetEntry(podIP)

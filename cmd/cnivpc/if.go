@@ -352,20 +352,7 @@ func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRules
 	}, nil
 }
 
-func (m *iptablesRulesManager) updateRules(nodeName string) error {
-	if err := ensureNATGWOutgoingIPSet(); err != nil {
-		return err
-	}
-	needsMigration, err := m.needsNATGWOutgoingMigration()
-	if err != nil {
-		return err
-	}
-	if needsMigration {
-		if err := migrateLegacyNATGWOutgoingIPs(nodeName); err != nil {
-			return err
-		}
-	}
-
+func (m *iptablesRulesManager) updateRules(nodeName string, natGWOutgoingEnabled bool) error {
 	snatRules, err := m.buildSNATRules()
 	if err != nil {
 		return err
@@ -384,7 +371,43 @@ func (m *iptablesRulesManager) updateRules(nodeName string) error {
 		return err
 	}
 
+	if natGWOutgoingEnabled {
+		if err := m.tryEnableNATGWOutgoing(nodeName); err != nil {
+			ulog.Warnf("Enable NAT gateway outgoing failed, fallback to node SNAT: %+v", err)
+		}
+	}
+
 	return nil
+}
+
+func (m *iptablesRulesManager) tryEnableNATGWOutgoing(nodeName string) error {
+	if err := ensureNATGWOutgoingIPSet(); err != nil {
+		return err
+	}
+
+	needsMigration, err := m.needsNATGWOutgoingMigration()
+	if err != nil {
+		return err
+	}
+	if !needsMigration {
+		return nil
+	}
+
+	// Keep the bypass rule absent when migration fails. Existing Pods then
+	// retain node SNAT, and the next enabled CNI ADD retries the migration.
+	if err := migrateLegacyNATGWOutgoingIPs(nodeName); err != nil {
+		return err
+	}
+
+	return updateIptablesRules([]iptablesRule{
+		{
+			name:        connmarkChainName,
+			shouldExist: true,
+			table:       "nat",
+			chain:       connmarkChainName,
+			rule:        natGWOutgoingBypassRule(),
+		},
+	}, m.ipt)
 }
 
 func podOutboundConnmarkJumpRule() []string {
@@ -516,16 +539,6 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 			},
 		})
 	}
-
-	// Pods using NAT gateway outgoing must retain their source address and use
-	// the existing source-based UNI route instead of node SNAT.
-	rules = append(rules, iptablesRule{
-		name:        connmarkChainName,
-		shouldExist: true,
-		table:       "nat",
-		chain:       connmarkChainName,
-		rule:        natGWOutgoingBypassRule(),
-	})
 
 	rules = append(rules, iptablesRule{
 		name:        "connmark rule for external outbound traffic",
