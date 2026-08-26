@@ -377,7 +377,9 @@ func (m *iptablesRulesManager) updateRules(nodeName string, natGWOutgoingEnabled
 		}
 	}
 
-	return nil
+	// Attach the custom chain only after its rules and the optional NAT gateway
+	// outgoing migration are ready.
+	return updateIptablesRules(buildConnmarkPreroutingRules(), m.ipt)
 }
 
 func (m *iptablesRulesManager) tryEnableNATGWOutgoing(nodeName string) error {
@@ -429,6 +431,43 @@ func podOutboundConnmarkRule() []string {
 	return []string{
 		"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
 		"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+	}
+}
+
+func buildConnmarkPreroutingRules() []iptablesRule {
+	jumpRule := iptablesRule{
+		name:        "connmark rule for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule:        podOutboundConnmarkJumpRule(),
+	}
+	// Reappend the existing jump rule so the custom chain is attached at the end
+	// of the update.
+	deleteJumpRule := jumpRule
+	deleteJumpRule.shouldExist = false
+
+	// Being in the nat table, this only applies to the first packet of the
+	// connection. It must follow the jump so the connection mark set by the
+	// custom chain is copied to the packet mark before routing.
+	restoreRule := iptablesRule{
+		name:        "connmark to fwmark copy",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	}
+	deleteRestoreRule := restoreRule
+	deleteRestoreRule.shouldExist = false
+
+	return []iptablesRule{
+		deleteJumpRule,
+		jumpRule,
+		deleteRestoreRule,
+		restoreRule,
 	}
 }
 
@@ -547,40 +586,6 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 		chain:       connmarkChainName,
 		rule:        podOutboundConnmarkRule(),
 	})
-
-	// Attach the custom chain only after its bypass rules are ready, so legacy
-	// Pod traffic cannot reach an existing mark rule during migration.
-	rule := iptablesRule{
-		name:        "connmark rule for non-VPC outbound traffic",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule:        podOutboundConnmarkJumpRule(),
-	}
-	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
-	// always true for packets traversing the nat table
-	deleteRule := rule
-	deleteRule.shouldExist = false
-	rules = append(rules, deleteRule)
-	rules = append(rules, rule)
-
-	// Being in the nat table, this only applies to the first packet of the connection. The mark
-	// will be restored in the mangle table for subsequent packets.
-	rule = iptablesRule{
-		name:        "connmark to fwmark copy",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
-		},
-	}
-	// Force delete existing restore mark rule so that the subsequent rule gets added to the end
-	deleteRule = rule
-	deleteRule.shouldExist = false
-	rules = append(rules, deleteRule)
-	rules = append(rules, rule)
 
 	return rules, nil
 }
