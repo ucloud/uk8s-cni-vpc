@@ -46,6 +46,9 @@ type PodNetworkingSpec struct {
 	SecurityGroupIds []string                 `json:"securityGroupIds"`
 	SubnetIds        []string                 `json:"subnetIds"`
 	Strategy         SubnetAllocationStrategy `json:"strategy,omitempty"`
+	// NATGWOutgoingEnabled indicates that outbound NAT is handled by the NAT gateway
+	// instead of the node.
+	NATGWOutgoingEnabled bool `json:"natGWOutgoingEnabled,omitempty"`
 }
 
 // PodNetworkingSpec is the status for PodNetworking resource

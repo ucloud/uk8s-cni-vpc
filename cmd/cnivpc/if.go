@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/cockroachdb/errors"
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
@@ -351,7 +352,7 @@ func newIptablesRulesManager(primaryIP, primaryInterface string) (*iptablesRules
 	}, nil
 }
 
-func (m *iptablesRulesManager) updateRules() error {
+func (m *iptablesRulesManager) updateRules(nodeName string, natGWOutgoingEnabled bool) error {
 	snatRules, err := m.buildSNATRules()
 	if err != nil {
 		return err
@@ -370,7 +371,120 @@ func (m *iptablesRulesManager) updateRules() error {
 		return err
 	}
 
-	return nil
+	if natGWOutgoingEnabled {
+		if err := m.tryEnableNATGWOutgoing(nodeName); err != nil {
+			ulog.Warnf("Enable NAT gateway outgoing failed, fallback to node SNAT: %+v", err)
+		}
+	}
+
+	// Attach the custom chain only after its rules and the optional NAT gateway
+	// outgoing migration are ready.
+	return updateIptablesRules(buildConnmarkPreroutingRules(), m.ipt)
+}
+
+func (m *iptablesRulesManager) tryEnableNATGWOutgoing(nodeName string) error {
+	if err := ensureNATGWOutgoingIPSet(); err != nil {
+		return err
+	}
+
+	needsMigration, err := m.needsNATGWOutgoingMigration()
+	if err != nil {
+		return err
+	}
+	if !needsMigration {
+		return nil
+	}
+
+	// Keep the bypass rule absent when migration fails. Existing Pods then
+	// retain node SNAT, and the next enabled CNI ADD retries the migration.
+	if err := migrateLegacyNATGWOutgoingIPs(nodeName); err != nil {
+		return err
+	}
+
+	return updateIptablesRules([]iptablesRule{
+		{
+			name:        connmarkChainName,
+			shouldExist: true,
+			table:       "nat",
+			chain:       connmarkChainName,
+			rule:        natGWOutgoingBypassRule(),
+		},
+	}, m.ipt)
+}
+
+func podOutboundConnmarkJumpRule() []string {
+	return []string{
+		"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
+		"-m", "state", "--state", "NEW", "-j", connmarkChainName,
+	}
+}
+
+func natGWOutgoingBypassRule() []string {
+	return []string{
+		"-m", "set", "--match-set", natGWOutgoingEnabledIPSetName, "src",
+		"-m", "comment", "--comment", "UCLOUD NATGW OUTGOING ENABLED",
+		"-j", "RETURN",
+	}
+}
+
+func podOutboundConnmarkRule() []string {
+	return []string{
+		"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+		"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
+	}
+}
+
+func buildConnmarkPreroutingRules() []iptablesRule {
+	jumpRule := iptablesRule{
+		name:        "connmark rule for non-VPC outbound traffic",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule:        podOutboundConnmarkJumpRule(),
+	}
+	// Reappend the existing jump rule so the custom chain is attached at the end
+	// of the update.
+	deleteJumpRule := jumpRule
+	deleteJumpRule.shouldExist = false
+
+	// Being in the nat table, this only applies to the first packet of the
+	// connection. It must follow the jump so the connection mark set by the
+	// custom chain is copied to the packet mark before routing.
+	restoreRule := iptablesRule{
+		name:        "connmark to fwmark copy",
+		shouldExist: true,
+		table:       "nat",
+		chain:       "PREROUTING",
+		rule: []string{
+			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
+			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
+		},
+	}
+	deleteRestoreRule := restoreRule
+	deleteRestoreRule.shouldExist = false
+
+	return []iptablesRule{
+		deleteJumpRule,
+		jumpRule,
+		deleteRestoreRule,
+		restoreRule,
+	}
+}
+
+func (m *iptablesRulesManager) needsNATGWOutgoingMigration() (bool, error) {
+	chainExists, err := m.ipt.ChainExists("nat", connmarkChainName)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check chain")
+	}
+	if !chainExists {
+		return true, nil
+	}
+
+	bypassExists, err := m.ipt.Exists("nat", connmarkChainName, natGWOutgoingBypassRule()...)
+	if err != nil {
+		return false, errors.Wrap(err, "main.iptablesRulesManager.needsNATGWOutgoingMigration check bypass rule")
+	}
+	return !bypassExists, nil
 }
 
 func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
@@ -453,23 +567,6 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 
 	rules := make([]iptablesRule, 0)
 
-	rule := iptablesRule{
-		name:        "connmark rule for non-VPC outbound traffic",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-i", "ucni+", "-m", "comment", "--comment", "UCLOUD outbound connections",
-			"-m", "state", "--state", "NEW", "-j", connmarkChainName,
-		},
-	}
-	// Force delete legacy rule: the rule was matching on "-m state --state NEW", which is
-	// always true for packets traversing the nat table
-	deleteRule := rule
-	deleteRule.shouldExist = false
-	rules = append(rules, deleteRule)
-	rules = append(rules, rule)
-
 	for _, cidr := range m.vpcCIDRs {
 		rules = append(rules, iptablesRule{
 			name:        connmarkChainName,
@@ -487,29 +584,8 @@ func (m *iptablesRulesManager) buildConnmarkRules() ([]iptablesRule, error) {
 		shouldExist: true,
 		table:       "nat",
 		chain:       connmarkChainName,
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--set-xmark", fmt.Sprintf("%#x/%#x", defaultConnmark, defaultConnmark),
-		},
+		rule:        podOutboundConnmarkRule(),
 	})
-
-	// Being in the nat table, this only applies to the first packet of the connection. The mark
-	// will be restored in the mangle table for subsequent packets.
-	rule = iptablesRule{
-		name:        "connmark to fwmark copy",
-		shouldExist: true,
-		table:       "nat",
-		chain:       "PREROUTING",
-		rule: []string{
-			"-m", "comment", "--comment", "UCLOUD CONNMARK", "-j", "CONNMARK",
-			"--restore-mark", "--mask", fmt.Sprintf("%#x", defaultConnmark),
-		},
-	}
-	// Force delete existing restore mark rule so that the subsequent rule gets added to the end
-	deleteRule = rule
-	deleteRule.shouldExist = false
-	rules = append(rules, deleteRule)
-	rules = append(rules, rule)
 
 	return rules, nil
 }

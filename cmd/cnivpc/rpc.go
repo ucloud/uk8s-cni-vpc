@@ -16,12 +16,12 @@ package main
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	"github.com/ucloud/ucloud-sdk-go/services/vpc"
 	"github.com/ucloud/ucloud-sdk-go/ucloud"
 	"github.com/ucloud/ucloud-sdk-go/ucloud/request"
@@ -64,25 +64,26 @@ func accessToPodNetworkDB(dbName, storageFile string) (database.Database[rpc.Pod
 	return database.NewBolt[rpc.PodNetwork](dbName, db)
 }
 
-func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, error) {
+func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS string) (*podnetworkingv1beta1.PodNetworking, string, error) {
 	ability, err := uapi.GetAbility()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get instance ability: %v", err)
+		return nil, "", fmt.Errorf("failed to get instance ability: %v", err)
 	}
 	if !ability.SupportUNI {
 		ulog.Infof("Current uhost does not support UNI, ignore podnetworking config")
-		return nil, nil
+		return nil, "", nil
 	}
 
 	pod, err := kubeClient.CoreV1().Pods(podNS).Get(context.TODO(), podName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
+		return nil, "", fmt.Errorf("failed to get pod %s in namespace %s: %v", podName, podNS, err)
 	}
+	nodeName := pod.Spec.NodeName
 	disable := pod.Annotations[ipamd.AnnotationPodNetworkingDisable]
 	if disable == "true" {
 		// User disable podnetworking manually
 		ulog.Infof("pod %s/%s disabled podnetworking", podNS, podName)
-		return nil, nil
+		return nil, nodeName, nil
 	}
 
 	pnName := pod.Annotations[ipamd.AnnotationPodNetworkingName]
@@ -92,22 +93,22 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 
 	crdClient, err := kubeclient.GetNodeCRDClient()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get crd kube client: %v", err)
+		return nil, "", fmt.Errorf("failed to get crd kube client: %v", err)
 	}
 	podnet, err := crdClient.VpcV1beta1().PodNetworkings().Get(context.TODO(), pnName, metav1.GetOptions{})
 	if err != nil {
 		// 当指定了自定义的 podnetworking 且无法查到时，也要阻塞 pod 创建
 		if k8serr.IsNotFound(err) && pnName == DefaultPodNetworkingName {
-			return nil, nil
+			return nil, nodeName, nil
 		}
-		return nil, fmt.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
+		return nil, "", fmt.Errorf("failed to get podnetworking with name %s: %v", pnName, err)
 	}
 	if len(podnet.Spec.SubnetIds) == 0 {
-		return nil, fmt.Errorf("podnetworking %s has no subnet", pnName)
+		return nil, "", fmt.Errorf("podnetworking %s has no subnet", pnName)
 	}
 
 	if len(podnet.Spec.SecurityGroupIds) == 0 && ability.SecGroup {
-		return nil, errors.New("inconsistency error: node has secgroup but podnetworking config has not")
+		return nil, "", errors.New("inconsistency error: node has secgroup but podnetworking config has not")
 	}
 
 	if len(podnet.Spec.SecurityGroupIds) > 0 && !ability.SecGroup {
@@ -116,27 +117,34 @@ func getPodNetworkingConfig(kubeClient *kubernetes.Clientset, podName, podNS str
 		podnet.Spec.SecurityGroupIds = nil
 	}
 
-	return podnet, nil
+	return podnet, nodeName, nil
 }
 
+type podIPAssignment struct {
+	network              *rpc.PodNetwork
+	fromIPAMD            bool
+	natGWOutgoingEnabled bool
+}
 
 // If there is ipamd daemon service, use ipamd to allocate Pod Ip;
 // if not, do this on myself.
-func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool, error) {
+func assignPodIp(podName, podNS, netNS, sandboxId string) (*podIPAssignment, error) {
 	kubeClient, err := kubeclient.GetNodeClient()
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to get node kube client: %v", err)
+		return nil, fmt.Errorf("failed to get node kube client: %v", err)
 	}
-	pnConfig, err := getPodNetworkingConfig(kubeClient, podName, podNS)
+	pnConfig, nodeName, err := getPodNetworkingConfig(kubeClient, podName, podNS)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
+	var natGWOutgoingEnabled bool
 	var uni *vpc.NetworkInterface
 	if pnConfig != nil {
-		uni, err = initPodNetworking(pnConfig)
+		natGWOutgoingEnabled = pnConfig.Spec.NATGWOutgoingEnabled
+		uni, err = initPodNetworking(pnConfig, nodeName)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 	}
 
@@ -152,27 +160,34 @@ func assignPodIp(podName, podNS, netNS, sandboxId string) (*rpc.PodNetwork, bool
 		if enabledIpamd(c) && ipamdSupportMultiSubnet(c) {
 			ip, err := allocateSecondaryIPFromIpamd(c, uni, podName, podNS, netNS, sandboxId)
 			if err != nil {
-				return nil, false, fmt.Errorf("failed to call ipamd: %v", err)
+				return nil, fmt.Errorf("failed to call ipamd: %v", err)
 			}
-			return ip, true, nil
+			return &podIPAssignment{
+				network:              ip,
+				fromIPAMD:            true,
+				natGWOutgoingEnabled: natGWOutgoingEnabled,
+			}, nil
 		}
 	}
 
 	enableStaticIP, _, err := ipamd.IsPodEnableStaticIP(kubeClient, podName, podNS)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to check pod static ip enable: %v", err)
+		return nil, fmt.Errorf("failed to check pod static ip enable: %v", err)
 	}
 	if enableStaticIP {
 		// If pod enable static ip, we donot allow it to allocate ip without ipamd
-		return nil, false, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
+		return nil, fmt.Errorf("pod %s/%s enable static ip, but ipamd is not enabled", podNS, podName)
 	}
 
 	// ipamd not available, directly call vpc to allocate IP
 	ip, err := allocateSecondaryIP(uni, podName, podNS, sandboxId)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to setup secondary ip: %v", err)
+		return nil, fmt.Errorf("failed to setup secondary ip: %v", err)
 	}
-	return ip, false, nil
+	return &podIPAssignment{
+		network:              ip,
+		natGWOutgoingEnabled: natGWOutgoingEnabled,
+	}, nil
 }
 
 // If there is ipamd daemon service, use ipamd to release Pod Ip;
@@ -249,7 +264,7 @@ func allocateSecondaryIP(uni *vpc.NetworkInterface, podName, podNS, sandboxID st
 	return &pn, nil
 }
 
-func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.NetworkInterface, error) {
+func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking, nodeName string) (*vpc.NetworkInterface, error) {
 	client, err := uapi.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to init uapi client: %v", err)
@@ -284,7 +299,7 @@ func initPodNetworking(pnConfig *podnetworkingv1beta1.PodNetworking) (*vpc.Netwo
 		return nil, err
 	}
 
-	err = iptablesRulesManager.updateRules()
+	err = iptablesRulesManager.updateRules(nodeName, pnConfig.Spec.NATGWOutgoingEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -791,6 +806,42 @@ func delPodNetworkRecordFromIpamd(c rpc.CNIIpamClient, podName, podNS, sandBoxID
 		return fmt.Errorf("gRPC DelPodNetworkRecord failed, code %v", r.Code)
 	}
 	return nil
+}
+
+func listPodNetworkRecords() ([]*rpc.PodNetwork, error) {
+	conn, err := grpc.Dial(IpamdServiceSocket,
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err == nil {
+		defer conn.Close()
+		client := rpc.NewCNIIpamClient(conn)
+		if enabledIpamd(client) {
+			response, err := client.ListPodNetworkRecord(
+				context.Background(),
+				&rpc.ListPodNetworkRecordRequest{},
+			)
+			if err != nil {
+				return nil, errors.Wrap(err, "main.listPodNetworkRecords list from ipamd")
+			}
+			if response.Code != rpc.CNIErrorCode_CNISuccess {
+				return nil, errors.Errorf(
+					"main.listPodNetworkRecords ipamd returned code %d",
+					errors.Safe(response.Code),
+				)
+			}
+			return response.Networks, nil
+		}
+	}
+
+	db, err := accessToPodNetworkDB(CNIVpcDbName, storageFile)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+	records, err := db.List()
+	if err != nil {
+		return nil, errors.Wrap(err, "main.listPodNetworkRecords list local database")
+	}
+	return database.Values(records), nil
 }
 
 // If there is ipamd daemon service, use ipamd to get PodNetworkRecord;
