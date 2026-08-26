@@ -422,7 +422,7 @@ func podOutboundConnmarkJumpRule() []string {
 func natGWOutgoingBypassRule() []string {
 	return []string{
 		"-m", "set", "--match-set", natGWOutgoingEnabledIPSetName, "src",
-		"-m", "comment", "--comment", "UCLOUD NAT OUTGOING DISABLED",
+		"-m", "comment", "--comment", "UCLOUD NATGW OUTGOING DISABLED",
 		"-j", "RETURN",
 	}
 }
