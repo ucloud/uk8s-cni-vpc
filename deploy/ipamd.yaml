@@ -55,6 +55,7 @@ spec:
          app: "cni-vpc-ipamd"
     spec:
       tolerations:
+      - operator: Exists
       - key: CriticalAddonsOnly
         operator: Exists
       - key: dedicated
@@ -68,7 +69,7 @@ spec:
       hostPID: true
       initContainers:
         - name: cnivpc-init
-          image: uhub.service.ucloud.cn/uk8s/cni-vpc-init:2.0.4
+          image: uhub.service.ucloud.cn/uk8s/cni-vpc-init:2.0.6
           imagePullPolicy: IfNotPresent
           env:
             - name: CNI_INIT_OVERWRITE
@@ -78,7 +79,7 @@ spec:
               mountPath: /opt/cni/
       containers:
         - name: cni-vpc-ipamd
-          image: uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:2.0.4
+          image: uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:2.0.6
           resources:
             limits:
               cpu: 200m
