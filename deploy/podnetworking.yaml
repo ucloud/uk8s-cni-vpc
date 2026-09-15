@@ -33,6 +33,9 @@ spec:
                   enum:
                     - sequential
                     - balanced
+                natGWOutgoingEnabled:
+                  type: boolean
+                  default: false
             status:
               type: object
               properties:
