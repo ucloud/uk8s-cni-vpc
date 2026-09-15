@@ -55,6 +55,7 @@ spec:
          app: "cni-vpc-ipamd"
     spec:
       tolerations:
+      - operator: Exists
       - key: CriticalAddonsOnly
         operator: Exists
       - key: dedicated
