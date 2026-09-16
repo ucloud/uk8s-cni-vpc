@@ -102,7 +102,7 @@ func getOwnerStatefulSetName(pod *v1.Pod) string {
 	return ""
 }
 
-func (s *ipamServer) createVpcIpClaimByPodNetwork(pn *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
+func (s *ipamServer) createVpcIpClaimByPodNetwork(req *rpc.AddPodNetworkRequest, pn *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
 	vip := PodNetworkToVip(pn)
 	vip.Labels = make(map[string]string)
 	ownerSts := getOwnerStatefulSetName(pod)
@@ -112,7 +112,7 @@ func (s *ipamServer) createVpcIpClaimByPodNetwork(pn *rpc.PodNetwork, pod *v1.Po
 		ulog.Warnf("Cannot find owner statefulset of %v/%v", pod.Namespace, pod.Name)
 	}
 
-	claim, err := s.createVpcIpClaim(vip)
+	vpcclaim, err := s.createVpcIpClaim(vip)
 	if err != nil {
 		// Only definite rejection permits rollback. A timeout/transport error may
 		// mean the Claim was committed, so returning its IP could double-allocate it.
@@ -122,7 +122,11 @@ func (s *ipamServer) createVpcIpClaimByPodNetwork(pn *rpc.PodNetwork, pod *v1.Po
 		}
 		return nil, err
 	}
-	return claim, nil
+	nvip, err := s.localAttach(req, vpcclaim, pn.SandboxID)
+	if err != nil {
+		return nil, err
+	}
+	return nvip, nil
 }
 
 func (s *ipamServer) localAttach(req *rpc.AddPodNetworkRequest, vip *v1beta1.VpcIpClaim, sandboxID string) (*v1beta1.VpcIpClaim, error) {
