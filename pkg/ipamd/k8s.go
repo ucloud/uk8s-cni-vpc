@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cockroachdb/errors"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
 	v1 "k8s.io/api/core/v1"
@@ -147,7 +148,17 @@ func (s *ipamServer) setAnnotationForCalicoPolicy(pod *v1.Pod, network *rpc.PodN
 }
 
 func (s *ipamServer) podEnableStaticIP(podName, podNS string) (bool, *v1.Pod, error) {
-	return IsPodEnableStaticIP(s.kubeClient, podName, podNS)
+	enabled, pod, err := IsPodEnableStaticIP(s.kubeClient, podName, podNS)
+	if err != nil || !enabled {
+		return enabled, pod, err
+	}
+	// Check the served API with existing list permissions, before taking an IP.
+	// An unavailable static IP API must not silently enable dynamic allocation.
+	_, err = s.crdClient.VipcontrollerV1beta1().VpcIpClaims(podNS).List(context.TODO(), metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("metadata.name", podName).String(),
+		Limit:         1,
+	})
+	return true, pod, errors.Wrap(err, "ipamd.ipamServer.podEnableStaticIP static IP requires an available VpcIPClaim API")
 }
 
 func IsPodEnableStaticIP(client *kubernetes.Clientset, podName, podNS string) (bool, *v1.Pod, error) {
