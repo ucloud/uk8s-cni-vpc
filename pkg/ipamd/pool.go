@@ -143,9 +143,13 @@ func (s *ipamServer) assignStaticPodIP(pod *v1.Pod, sandboxID string, req *rpc.A
 		nvip.PodName = pod.Name
 		nvip.PodNS = pod.Namespace
 		nvip.SandboxID = sandboxID
-		_, err = s.createVpcIpClaimByPodNetwork(req, nvip, pod)
+		vip, err := s.createVpcIpClaimByPodNetwork(nvip, pod)
 		if err != nil {
 			ulog.Errorf("Save static ip %v to crd error: %v", nvip, err)
+			return nil, err
+		}
+		// The Claim now owns this IP. Attach failures must preserve it for retry.
+		if _, err := s.localAttach(req, vip, sandboxID); err != nil {
 			return nil, err
 		}
 		return nvip, nil

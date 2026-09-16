@@ -15,10 +15,10 @@ package ipamd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
+	"github.com/cockroachdb/errors"
 	v1beta1 "github.com/ucloud/uk8s-cni-vpc/kubernetes/apis/vipcontroller/v1beta1"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
@@ -35,7 +35,8 @@ const (
 )
 
 func (s *ipamServer) createVpcIpClaim(vip *v1beta1.VpcIpClaim) (*v1beta1.VpcIpClaim, error) {
-	return s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Create(context.TODO(), vip, metav1.CreateOptions{})
+	claim, err := s.crdClient.VipcontrollerV1beta1().VpcIpClaims(vip.Namespace).Create(context.TODO(), vip, metav1.CreateOptions{})
+	return claim, errors.Wrap(err, "ipamd.ipamServer.createVpcIpClaim create Claim")
 }
 
 func (s *ipamServer) getVpcipClaim(podNS, podName string) (*v1beta1.VpcIpClaim, error) {
@@ -101,7 +102,7 @@ func getOwnerStatefulSetName(pod *v1.Pod) string {
 	return ""
 }
 
-func (s *ipamServer) createVpcIpClaimByPodNetwork(req *rpc.AddPodNetworkRequest, pn *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
+func (s *ipamServer) createVpcIpClaimByPodNetwork(pn *rpc.PodNetwork, pod *v1.Pod) (*v1beta1.VpcIpClaim, error) {
 	vip := PodNetworkToVip(pn)
 	vip.Labels = make(map[string]string)
 	ownerSts := getOwnerStatefulSetName(pod)
@@ -111,15 +112,17 @@ func (s *ipamServer) createVpcIpClaimByPodNetwork(req *rpc.AddPodNetworkRequest,
 		ulog.Warnf("Cannot find owner statefulset of %v/%v", pod.Namespace, pod.Name)
 	}
 
-	vpcclaim, err := s.createVpcIpClaim(vip)
+	claim, err := s.createVpcIpClaim(vip)
 	if err != nil {
+		// Only definite rejection permits rollback. A timeout/transport error may
+		// mean the Claim was committed, so returning its IP could double-allocate it.
+		if k8serr.IsNotFound(err) || k8serr.IsForbidden(err) || k8serr.IsUnauthorized(err) ||
+			k8serr.IsInvalid(err) || k8serr.IsBadRequest(err) || k8serr.IsMethodNotSupported(err) {
+			s.putIpToPool(pn)
+		}
 		return nil, err
 	}
-	nvip, err := s.localAttach(req, vpcclaim, vip.Status.SandboxId)
-	if err != nil {
-		return nil, err
-	}
-	return nvip, nil
+	return claim, nil
 }
 
 func (s *ipamServer) localAttach(req *rpc.AddPodNetworkRequest, vip *v1beta1.VpcIpClaim, sandboxID string) (*v1beta1.VpcIpClaim, error) {
