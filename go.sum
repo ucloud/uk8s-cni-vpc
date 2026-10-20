@@ -308,8 +308,8 @@ github.com/stretchr/testify v1.7.0 h1:nwc3DEeHmmLAfoZucVR881uASk0Mfjw8xYJ99tb5Cc
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/ucloud/go-lockfile v0.1.0 h1:Mzb1/OZc8Gween/p1cA4t6qBTiE9JnZntZpRTdIIdxE=
 github.com/ucloud/go-lockfile v0.1.0/go.mod h1:OCM7zfa82qicE2nW5pVtSDEMmPvjYvProNQ/f2YHEkw=
-github.com/ucloud/ucloud-sdk-go v0.21.46 h1:LwrTxERZjQJPjVILoIfjy8PTgYkckah5ms2eq4ECgT0=
-github.com/ucloud/ucloud-sdk-go v0.21.46/go.mod h1:dyLmFHmUfgb4RZKYQP9IArlvQ2pxzFthfhwxRzOEPIw=
+github.com/ucloud/ucloud-sdk-go v0.22.135 h1:p+ocFCvWaFE1lBI517DY8pD4QKodiSooGCcx/xcqX24=
+github.com/ucloud/ucloud-sdk-go v0.22.135/go.mod h1:dyLmFHmUfgb4RZKYQP9IArlvQ2pxzFthfhwxRzOEPIw=
 github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852 h1:cPXZWzzG0NllBLdjWoD1nDfaqu98YMv+OneaKc8sPOA=
 github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852/go.mod h1:twkDnbuQxJYemMlGd4JFIcuhgX83tXhKS2B/PRMpOho=
 github.com/vishvananda/netns v0.0.0-20200728191858-db3c7e526aae/go.mod h1:DD4vA1DwXk04H54A1oHXtwZmA0grkVMdPxx/VGLCah0=

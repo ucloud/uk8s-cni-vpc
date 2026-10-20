@@ -32,7 +32,7 @@ import (
 
 const (
 	uApiDefaultEndpoint = "http://api.service.ucloud.cn"
-	characterName       = "Uk8sServiceCharacter"
+	characterName       = "ServiceRoleForUK8S"
 )
 
 type ApiClient struct {
@@ -95,7 +95,7 @@ func (c *ApiClient) SubnetID() string {
 func (c *ApiClient) CreateCredential() (*auth.Credential, error) {
 	var credential auth.Credential
 	// In latest uk8s clusters, we removed api key in cm uk8sconfig
-	config, err := external.LoadSTSConfig(external.AssumeRoleRequest{RoleName: characterName})
+	config, err := external.LoadSTSConfigV2(external.AssumeRoleV2Request{RoleName: characterName})
 	if err != nil {
 		logWarningf("Cannot get sts token for role %v, %v, credential will be invalid", characterName, err)
 		// In past uk8s clusters, we injected api key in cm uk8sconfig
