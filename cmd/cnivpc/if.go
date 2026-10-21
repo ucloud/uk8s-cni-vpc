@@ -493,7 +493,13 @@ func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
 		return nil, err
 	}
 
-	rules := make([]iptablesRule, 0)
+	rules := []iptablesRule{{
+		name:        "block pod metadata access",
+		shouldExist: true,
+		table:       "raw",
+		chain:       "PREROUTING",
+		rule:        []string{"-i", "ucni+", "-d", "100.80.80.80/32", "-j", "DROP"},
+	}}
 
 	// build SNAT rules for outbound non-VPC traffic
 	rules = append(rules, iptablesRule{

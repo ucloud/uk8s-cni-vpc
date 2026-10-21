@@ -21,7 +21,6 @@ import (
 
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/deviceplugin"
-	"github.com/ucloud/uk8s-cni-vpc/pkg/hostnetwork"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/ulog"
 	"github.com/ucloud/uk8s-cni-vpc/rpc"
 
@@ -76,9 +75,6 @@ func (s *ipamServer) reconcile() {
 }
 
 func (s *ipamServer) doReconcile() {
-	if err := hostnetwork.Sync(); err != nil {
-		ulog.Errorf("Reconcile metadata policy failed: %+v", err)
-	}
 	// Get local pods
 	folks, err := s.getLocalPods()
 	if err != nil {
