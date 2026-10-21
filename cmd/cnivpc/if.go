@@ -487,12 +487,13 @@ func (m *iptablesRulesManager) needsNATGWOutgoingMigration() (bool, error) {
 	return !bypassExists, nil
 }
 
-func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
-	err := m.ensureChain("nat", snatChainName)
+// ensurePodMetadataBlocked runs for every CNI ADD, including nodes without
+// PodNetworking. The node-wide rule must not be removed by CNI DEL.
+func ensurePodMetadataBlocked() error {
+	ipt, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
-		return nil, err
+		return errors.Wrap(err, "main.ensurePodMetadataBlocked open iptables")
 	}
-
 	rules := []iptablesRule{{
 		name:        "block pod metadata access",
 		shouldExist: true,
@@ -500,6 +501,16 @@ func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
 		chain:       "PREROUTING",
 		rule:        []string{"-i", "ucni+", "-d", "100.80.80.80/32", "-j", "DROP"},
 	}}
+	return updateIptablesRules(rules, ipt)
+}
+
+func (m *iptablesRulesManager) buildSNATRules() ([]iptablesRule, error) {
+	err := m.ensureChain("nat", snatChainName)
+	if err != nil {
+		return nil, err
+	}
+
+	rules := make([]iptablesRule, 0)
 
 	// build SNAT rules for outbound non-VPC traffic
 	rules = append(rules, iptablesRule{
