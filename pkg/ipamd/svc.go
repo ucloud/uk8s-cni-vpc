@@ -27,6 +27,7 @@ import (
 	"github.com/cockroachdb/errors"
 	crdclientset "github.com/ucloud/uk8s-cni-vpc/kubernetes/generated/clientset/versioned"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/database"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/hostnetwork"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/kubeclient"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/uapi"
@@ -85,6 +86,9 @@ type ipamServer struct {
 }
 
 func Start() error {
+	if err := hostnetwork.Sync(); err != nil {
+		return errors.Wrap(err, "ipamd.Start enforce metadata policy")
+	}
 	kubeConfig, err := kubeclient.GetConfig()
 	if err != nil {
 		return err

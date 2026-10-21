@@ -137,3 +137,47 @@ make vip-controller # Build vip-controller binary file and docker image
 ### Release
 
 As long as you create a tag, all docker images will be automatically built and published through [Github Action](https://docs.github.com/en/actions). See: [release workflow](.github/workflows/release.yml).
+
+## Block Pod access to instance metadata
+
+CNI ADD and IPAMD now maintain a host-side IPv4 `raw/PREROUTING` DROP rule for
+traffic entering `ucni+` interfaces with destination `100.80.80.80/32`, for all
+protocols and ports. Host processes and hostNetwork Pods retain direct metadata
+access. The rule does not cover other CNIs/interfaces, host-network workloads,
+DNAT aliases or proxies that fetch metadata on a Pod's behalf.
+
+Blocking is enabled when `/opt/cni/metadata-access.json` does not exist. Before
+upgrading, migrate CA, CSI controllers, LB controllers and other metadata-dependent
+Pods to host networking or another credential source. Existing Pods are covered
+when IPAMD starts; no Pod restart is needed. CNI ADD installs the rule before IP
+allocation and veth setup, including nodes without a PodNetworking resource.
+
+To stage the upgrade without blocking, atomically write this **node-local** file
+before installing the new binaries (it is shared through IPAMD's `/opt/cni` mount):
+
+```json
+{"blockPodMetadata": false}
+```
+
+Set it to `true` to enable blocking. IPAMD reapplies policy on startup and on its
+existing three-minute reconciliation loop, before Kubernetes API-dependent work;
+CNI ADD also reconciles it. Restart IPAMD for immediate application to an idle
+node. Disabling removes only this feature's exact rules, including older copies
+left behind when repairing rule priority. CNI DEL never removes shared protection.
+Do not simply remove the file to disable: an absent file enables protection.
+
+Malformed policy, lock timeout, missing iptables or a failed installed backend
+fails CNI ADD/IPAMD startup. Periodic failures are logged and retried without
+removing existing rules. Rules cleared externally can leave an access window until
+the next successful reconcile; this is not tamper-proof enforcement against a
+host administrator. Node rollback requires explicitly disabling and reconciling
+before downgrading binaries, because kernel firewall rules outlive the process.
+
+Both CNI and IPAMD must share `/opt/cni` and the host network namespace. A bounded
+file lock serializes their policy updates. Installed legacy and nft backends are
+both managed to avoid leaving protection behind after a backend switch; every
+installed backend must support the raw table. The IPAMD image includes both tools.
+Other firewall managers may add rules, but must not continuously prepend bypass
+rules ahead of this policy. Rules are never deleted by numeric index.
+
+See [the isolated Linux integration test](tests/metadata/README.md) for validation.

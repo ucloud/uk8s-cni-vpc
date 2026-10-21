@@ -24,6 +24,7 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/ucloud/uk8s-cni-vpc/config"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/arping"
+	"github.com/ucloud/uk8s-cni-vpc/pkg/hostnetwork"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/iputils"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/lockfile"
 	"github.com/ucloud/uk8s-cni-vpc/pkg/portmap"
@@ -85,6 +86,10 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 	if err != nil {
 		ulog.Errorf("Parse cmdAdd config error: %v", err)
 		return fmt.Errorf("failed to parse cmdadd config: %v", err)
+	}
+
+	if err := hostnetwork.Sync(); err != nil {
+		return errors.Wrap(err, "main.cmdAdd enforce metadata policy")
 	}
 
 	podArgs := loadSandboxArgs(args.Args)
