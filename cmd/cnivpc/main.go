@@ -87,6 +87,10 @@ func cmdAdd(args *skel.CmdArgs) (retErr error) {
 		return fmt.Errorf("failed to parse cmdadd config: %v", err)
 	}
 
+	if err := ensurePodMetadataBlocked(); err != nil {
+		return err
+	}
+
 	podArgs := loadSandboxArgs(args.Args)
 	podName := podArgs["K8S_POD_NAME"]
 	podNS := podArgs["K8S_POD_NAMESPACE"]
