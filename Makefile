@@ -8,7 +8,7 @@ COMMIT_ID_SHORT=$(shell git rev-parse --short HEAD)
 LDFLAGS= -ldflags  "-X '${PKG_VERSION_PATH}.CNIVersion=${CNI_VERSION}' -X ${PKG_VERSION_PATH}.BuildTime=${BUILD_TIME} -X ${PKG_VERSION_PATH}.ProgramCommitID=${COMMIT_ID}"
 
 # If current commit is tagged, use tag as version, else, use dev-${COMMIT_ID} as version
-CNI_VERSION=$(shell git tag --points-at ${COMMIT_ID})
+CNI_VERSION=$(if $(RELEASE_VERSION),$(RELEASE_VERSION),$(shell git describe --tags --exact-match HEAD 2>/dev/null))
 CNI_VERSION:=$(if $(CNI_VERSION),$(CNI_VERSION),dev-${COMMIT_ID_SHORT})
 CNI_VERSION:=$(shell echo ${CNI_VERSION} | sed -e "s/^v//")
 
@@ -24,6 +24,8 @@ DOCKER_TEST_BUCKET=uhub.service.ucloud.cn/wxyz
 DOCKER_LABEL:=$(if $(DEPLOY),$(CNI_VERSION),dev-$(COMMIT_ID_SHORT))
 DOCKER_LABEL:=$(if $(IMAGE_TAG),$(IMAGE_TAG),$(DOCKER_LABEL))
 DOCKER_BUCKET:=$(if $(DEPLOY),$(DOCKER_DEPLOY_BUCKET),$(DOCKER_TEST_BUCKET))
+
+CNIVPC_INIT_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-init:$(DOCKER_LABEL)
 
 CNIVPC_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-node:$(DOCKER_LABEL)
 IPAMD_IMAGE:=$(DOCKER_BUCKET)/cni-vpc-ipamd:$(DOCKER_LABEL)
@@ -42,6 +44,18 @@ cnivpc: cnivpc-bin
 	$(DOCKER_CMD) build -t $(CNIVPC_IMAGE) -f dockerfiles/cnivpc/Dockerfile .
 	$(DOCKER_CMD) push $(CNIVPC_IMAGE)
 	@echo "Build done: $(CNIVPC_IMAGE)"
+
+.PHONY: cnivpc-init-bin
+cnivpc-init-bin: cnivpc-bin
+	CGO_ENABLED=0 GOOS="linux" GOARCH="amd64" go build ${LDFLAGS} -o ./bin/cnivpc-init ./cmd/cnivpc-init
+
+.PHONY: push-cnivpc-init-image
+push-cnivpc-init-image: cnivpc-init-bin
+	$(DOCKER_CMD) buildx build --platform linux/amd64 --push -t $(CNIVPC_INIT_IMAGE) -f dockerfiles/cnivpc-init/Dockerfile .
+
+.PHONY: package
+package: cnivpc-bin
+	./scripts/package-release.sh "$(CNI_VERSION)"
 
 .PHONY: ipamd
 ipamd:
