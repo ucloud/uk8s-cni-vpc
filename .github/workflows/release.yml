@@ -8,9 +8,15 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ github.ref_name }}
 
     steps:
     - name: Checkout
@@ -25,12 +31,20 @@ jobs:
 
     - name: Get the version
       id: get_version
-      run: echo ::set-output name=VERSION::$(echo $GITHUB_REF | cut -d / -f 3 | sed -e "s/^v//")
+      run: echo "VERSION=${RELEASE_VERSION#v}" >> "$GITHUB_OUTPUT"
 
     - name: Set up go
       uses: actions/setup-go@v3
       with:
         go-version: 1.20.5
+
+    - name: Test init installer and release packaging
+      run: |
+        go test ./cmd/cnivpc-init
+        bash scripts/package-release-test.sh
+
+    - name: Build cnivpc-init
+      run: DEPLOY=true make push-cnivpc-init-image
 
     - name: Build cnivpc
       run: DEPLOY=true make cnivpc
@@ -42,13 +56,7 @@ jobs:
       run: DEPLOY=true make vip-controller
 
     - name: Package cni
-      run: >
-        tar -cv
-        LICENSE README.md
-        -C bin/ cnivpc cnivpctl
-        -C config/ 10-cnivpc.conf
-        | gzip --best
-        > 'uk8s-cni-vpc_v${{ steps.get_version.outputs.VERSION }}.tar.gz'
+      run: make package
 
     - name: Create release
       uses: softprops/action-gh-release@v1
@@ -57,6 +65,7 @@ jobs:
         body: |
           ## Docker Images
 
+          - uhub.service.ucloud.cn/uk8s/cni-vpc-init:${{ steps.get_version.outputs.VERSION }}
           - uhub.service.ucloud.cn/uk8s/cni-vpc-node:${{ steps.get_version.outputs.VERSION }}
           - uhub.service.ucloud.cn/uk8s/cni-vpc-ipamd:${{ steps.get_version.outputs.VERSION }}
           - uhub.service.ucloud.cn/uk8s/vip-controller:${{ steps.get_version.outputs.VERSION }}
