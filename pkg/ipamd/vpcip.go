@@ -433,7 +433,7 @@ func (s *ipamServer) recycleCooldownIP() {
 	now := time.Now().Unix()
 	newSet := make([]*cooldownIPItem, 0, len(s.cooldownSet))
 	for _, cdIP := range s.cooldownSet {
-		if cdIP.cooldownOver >= now {
+		if now >= cdIP.cooldownOver {
 			err := s.pool.Set(getReservedIPKey(cdIP.vpcIP), cdIP.vpcIP)
 			if err != nil {
 				klog.Errorf("recycle cooldown ip %s failed: %v, it will be put back to cooldown queue", cdIP.vpcIP.VPCIP, err)
